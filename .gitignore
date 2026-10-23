@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+data/
+.env
+*.log
+.DS_Store
+deploy/nutrition.env
