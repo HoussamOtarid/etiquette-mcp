@@ -171,6 +171,30 @@ describe("NutritionService", () => {
     expect(result.products[0]?.offers).toHaveLength(3);
   });
 
+  it("joins offers whose barcode is only on the product page, despite different brand names", async () => {
+    const pageOnly = fake({
+      id: "naturalia",
+      tier: "C",
+      ean: true,
+      search: (q) =>
+        q.text ? [offer("naturalia", "Pain Intégral Montignac 1kg Bio", { brand: "Montignac" })] : [],
+      getLabel: () => ({ label: label("naturalia", 230, 1, 44, 6.8), ean: EAN }),
+    });
+    const maker = fake({
+      id: "labellevie",
+      tier: "C",
+      ean: true,
+      search: (q) =>
+        q.text
+          ? [offer("labellevie", "Pain intégral Montignac BIO, tranché", { brand: "Belledonne", ean: EAN })]
+          : [],
+    });
+    const result = await service([pageOnly, maker]).findProduct({ query: "pain intégral montignac" });
+    expect(result.products).toHaveLength(1);
+    expect(result.products[0]).toMatchObject({ ean: EAN, match: "ean" });
+    expect(result.products[0]?.offers.map((o) => o.source).sort()).toEqual(["labellevie", "naturalia"]);
+  });
+
   it("answers within the budget when a source is slow", async () => {
     const slow = fake({
       id: "biocoop",

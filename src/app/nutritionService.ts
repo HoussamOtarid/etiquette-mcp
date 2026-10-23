@@ -41,6 +41,7 @@ export interface ServiceDeps {
 const MAX_RESULTS = 5;
 const SHORT_QUERY_WORDS = 3;
 const MAX_NAME_QUERIES = 4;
+const MAX_EAN_ENRICHMENTS = 5;
 
 /**
  * Queries used to find a known product in a source that cannot search by barcode. Shop search engines often require
@@ -248,7 +249,39 @@ export class NutritionService {
         this.search(a, { text: input.query, brand: input.brand, limit: MAX_RESULTS }, deadline, status),
       ),
     );
-    return groupOffers(results.flat(), this.tierOf);
+    const offers = results.flat();
+    const ranked = rankGroups(groupOffers(offers, this.tierOf), {
+      query: input.query,
+      brand: input.brand,
+      size: input.size,
+    });
+    // Brand names differ between shops (maker vs product line), so barcodes are what joins offers: fetch the missing
+    // ones for the best candidates from their product page (cached, and it prefetches the label as well).
+    const missing = ranked
+      .slice(0, MAX_RESULTS)
+      .flatMap((g) => g.offers)
+      .filter((o) => !o.ean)
+      .slice(0, MAX_EAN_ENRICHMENTS);
+    if (missing.length === 0) return ranked;
+    await Promise.all(missing.map((o) => this.enrichEan(o, deadline, status)));
+    return groupOffers(offers, this.tierOf);
+  }
+
+  private async enrichEan(offer: Offer, deadline: number, status: Statuses): Promise<void> {
+    const adapter = this.byId.get(offer.source);
+    if (!adapter) return;
+    const outcome = await callSource(
+      offer.source,
+      () => adapter.getLabel(offer),
+      this.remaining(deadline),
+      this.deps.health,
+    );
+    if (outcome.status !== "ok") {
+      this.record(status, offer.source, outcome.status);
+      return;
+    }
+    if (outcome.value.ean) offer.ean = outcome.value.ean;
+    if (outcome.value.label && !offer.label) offer.label = outcome.value.label;
   }
 
   /**
