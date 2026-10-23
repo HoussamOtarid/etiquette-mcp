@@ -130,7 +130,11 @@ export class LaFourcheAdapter implements SourceAdapter {
   readonly displayName = "La Fourche";
   readonly capabilities = { text: true, ean: false };
 
-  constructor(private readonly deps: AdapterDeps) {}
+  private readonly deps: AdapterDeps;
+
+  constructor(deps: AdapterDeps) {
+    this.deps = deps;
+  }
 
   async search(query: SearchQuery): Promise<Offer[]> {
     if (!query.text) return [];

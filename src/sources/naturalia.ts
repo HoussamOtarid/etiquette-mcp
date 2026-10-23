@@ -96,7 +96,11 @@ export class NaturaliaAdapter implements SourceAdapter {
   readonly displayName = "Naturalia";
   readonly capabilities = { text: true, ean: true };
 
-  constructor(private readonly deps: AdapterDeps) {}
+  private readonly deps: AdapterDeps;
+
+  constructor(deps: AdapterDeps) {
+    this.deps = deps;
+  }
 
   async search(query: SearchQuery): Promise<Offer[]> {
     const q = query.ean ?? query.text;

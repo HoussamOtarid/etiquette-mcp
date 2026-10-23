@@ -136,7 +136,11 @@ export class OpenFoodFactsAdapter implements SourceAdapter {
   readonly displayName = "Open Food Facts";
   readonly capabilities = { text: true, ean: true };
 
-  constructor(private readonly deps: AdapterDeps) {}
+  private readonly deps: AdapterDeps;
+
+  constructor(deps: AdapterDeps) {
+    this.deps = deps;
+  }
 
   async search(query: SearchQuery): Promise<Offer[]> {
     if (query.ean) {

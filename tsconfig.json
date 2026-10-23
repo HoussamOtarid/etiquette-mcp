@@ -13,6 +13,7 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
     "rewriteRelativeImportExtensions": true,
     "isolatedModules": true,
     "esModuleInterop": true,

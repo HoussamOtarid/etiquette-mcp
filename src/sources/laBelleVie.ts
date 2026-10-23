@@ -113,7 +113,11 @@ export class LaBelleVieAdapter implements SourceAdapter {
   readonly displayName = "La Belle Vie";
   readonly capabilities = { text: true, ean: true };
 
-  constructor(private readonly deps: AdapterDeps) {}
+  private readonly deps: AdapterDeps;
+
+  constructor(deps: AdapterDeps) {
+    this.deps = deps;
+  }
 
   async search(query: SearchQuery): Promise<Offer[]> {
     const q = query.ean ?? query.text;

@@ -18,7 +18,11 @@ export class HostLimiter {
   private nextStartAt = 0;
   private timer: NodeJS.Timeout | null = null;
 
-  constructor(private readonly limit: RateLimit) {}
+  private readonly limit: RateLimit;
+
+  constructor(limit: RateLimit) {
+    this.limit = limit;
+  }
 
   /** Rough time a new job would wait before starting. */
   estimatedWaitMs(now = Date.now()): number {

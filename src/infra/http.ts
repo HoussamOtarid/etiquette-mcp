@@ -2,18 +2,23 @@ import type { Logger } from "./logger.ts";
 import { HostLimiter, type RateLimit } from "./rateLimiter.ts";
 
 export class HttpError extends Error {
-  constructor(
-    readonly status: number,
-    readonly host: string,
-  ) {
+  readonly status: number;
+  readonly host: string;
+
+  constructor(status: number, host: string) {
     super(`HTTP ${status} from ${host}`);
+    this.status = status;
+    this.host = host;
     this.name = "HttpError";
   }
 }
 
 export class RateLimitedError extends Error {
-  constructor(readonly host: string) {
+  readonly host: string;
+
+  constructor(host: string) {
     super(`Rate limit queue for ${host} is full`);
+    this.host = host;
     this.name = "RateLimitedError";
   }
 }
@@ -50,7 +55,11 @@ const MAX_RETRY_DELAY_MS = 5000;
 export class HttpClient {
   private readonly limiters = new Map<string, HostLimiter>();
 
-  constructor(private readonly options: HttpClientOptions) {}
+  private readonly options: HttpClientOptions;
+
+  constructor(options: HttpClientOptions) {
+    this.options = options;
+  }
 
   async getText(url: string, opts: RequestOptions = {}): Promise<HttpResponse<string>> {
     return this.request(url, { method: "GET" }, opts, (r) => r.text());
