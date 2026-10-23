@@ -25,7 +25,7 @@ const STOPWORDS = new Set([
 export function normalizeText(text: string | null | undefined): string {
   return (text ?? "")
     .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim();

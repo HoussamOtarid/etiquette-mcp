@@ -1,14 +1,14 @@
 import type { NutrientValue } from "./types.ts";
 
 /**
- * Parses a number as written on French labels: "4,7", "1 121", "1 121", "0.5".
+ * Parses a number as written on French labels: "4,7", "1 121", "1\u202f121", "0.5".
  * Returns null when no number is present.
  */
 export function parseNumber(text: string | null | undefined): number | null {
   if (!text) return null;
-  const match = /(\d{1,3}(?:[   ]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)/.exec(text);
+  const match = /(\d{1,3}(?:[ \u00a0\u202f]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)/.exec(text);
   if (!match?.[1]) return null;
-  const value = Number(match[1].replace(/[   ]/g, "").replace(",", "."));
+  const value = Number(match[1].replace(/[ \u00a0\u202f]/g, "").replace(",", "."));
   return Number.isFinite(value) ? value : null;
 }
 

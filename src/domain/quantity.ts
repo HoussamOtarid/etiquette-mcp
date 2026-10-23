@@ -19,7 +19,7 @@ const UNIT_FACTORS: Record<string, { unit: "g" | "ml"; factor: number }> = {
  */
 export function parseQuantity(text: string | null | undefined): Quantity | null {
   if (!text) return null;
-  const t = text.toLowerCase().replace(/,/g, ".").replace(/ /g, " ");
+  const t = text.toLowerCase().replace(/,/g, ".").replace(/\u00a0/g, " ");
   const multi = /(\d+)\s*[x×]\s*(\d+(?:\.\d+)?)\s*(kg|gr|g|ml|cl|dl|l)\b/.exec(t);
   if (multi?.[1] && multi[2] && multi[3]) {
     const unit = UNIT_FACTORS[multi[3]];
