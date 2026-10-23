@@ -12,6 +12,9 @@ const DENSITIES: Array<{ pattern: RegExp; density: number }> = [
   { pattern: /\bjus\b|\bnectar|\bsmoothie|\bsoda|\bkombucha|\blimonade/, density: 1.04 },
 ];
 
+const EQUIVALENT_DENSITY_TOLERANCE = 0.05;
+const CONVERTED_WEIGHT_FACTOR = 0.95;
+
 export function densityFor(productName: string): number {
   const name = normalizeText(productName);
   return DENSITIES.find((d) => d.pattern.test(name))?.density ?? 1;
@@ -43,6 +46,10 @@ export function alignBasis(
     if (fam === "unknown")
       return { ...label, flags: [...new Set([...label.flags, "basis_unknown" as const])] };
     if (fam === "either" || label.basis === target || (target !== "100g" && target !== "100ml")) return label;
+    // Water-like products: shops often write "100 g" for "100 ml"; the values are comparable as published.
+    if (Math.abs(density - 1) <= EQUIVALENT_DENSITY_TOLERANCE) {
+      return { ...label, basis: target, notes: [...label.notes, `basis_assumed_equivalent:${label.basis}`] };
+    }
     // per 100 ml → per 100 g: divide by density; per 100 g → per 100 ml: multiply.
     const factor = target === "100g" ? 1 / density : density;
     const values: Partial<Record<NutrientKey, number>> = {};
@@ -54,6 +61,8 @@ export function alignBasis(
       ...label,
       values,
       basis: target,
+      // Slightly lower weight so that, when labels agree, the reported value is one that was actually published.
+      weight: label.weight * CONVERTED_WEIGHT_FACTOR,
       flags: [...new Set([...label.flags, "basis_converted" as const])],
     };
   });

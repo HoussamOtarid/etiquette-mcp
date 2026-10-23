@@ -194,6 +194,19 @@ describe("decision", () => {
     expect(d.nutrients.energy_kcal?.agreement).toMatch(/strong|weak/);
   });
 
+  it("treats 100 g and 100 ml as equivalent for water-like products, reporting a published value", () => {
+    const d = decide(
+      [
+        label("lafourche", { kcal: 43, fat: 1.2, carbs: 7.3, protein: 0.6 }),
+        label("off", { kcal: 43, fat: 1.2, carbs: 7.3, protein: 0.6 }, { basis: "100ml" }),
+      ],
+      "Boisson avoine bio",
+    );
+    expect(d.nutrients.energy_kcal).toMatchObject({ value: 43, agreement: "strong" });
+    expect(d.confidence.flags).not.toContain("basis_converted");
+    expect(d.perSource.find((l) => l.source === "off")?.notes).toContain("basis_assumed_equivalent:100ml");
+  });
+
   it("refuses to pick between two disagreeing sources", () => {
     const d = decide([
       label("lavieclaire", { kcal: 112, fat: 0.5, carbs: 26, protein: 0.8 }),
