@@ -100,11 +100,15 @@ export class KazidomiAdapter implements SourceAdapter {
   readonly id = "kazidomi" as const;
   readonly tier = "A" as const;
   readonly displayName = "Kazidomi";
-  readonly capabilities = { text: true, ean: true };
+  // Barcodes are only known for products fetched before, so barcode lookups go through name search.
+  readonly capabilities = { text: true, ean: false };
   private readonly index: KazidomiIndex;
   private refreshing: Promise<void> | null = null;
 
-  constructor(private readonly deps: AdapterDeps) {
+  private readonly deps: AdapterDeps;
+
+  constructor(deps: AdapterDeps) {
+    this.deps = deps;
     this.index = new KazidomiIndex(deps.cache.database);
   }
 

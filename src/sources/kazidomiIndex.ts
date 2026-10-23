@@ -31,7 +31,10 @@ export function parseSitemap(xml: string): IndexedProduct[] {
 
 /** Local full-text index of the Kazidomi catalogue (the shop has no public search endpoint). */
 export class KazidomiIndex {
-  constructor(private readonly db: DatabaseSync) {
+  private readonly db: DatabaseSync;
+
+  constructor(db: DatabaseSync) {
+    this.db = db;
     db.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS kazidomi_fts USING fts5(
         id UNINDEXED, slug UNINDEXED, brand, name, tokenize = 'unicode61 remove_diacritics 2'
@@ -69,18 +72,22 @@ export class KazidomiIndex {
     }
   }
 
-  /** Best matches for a name/keyword query; all words must match (prefix match), ranked by BM25. */
+  /**
+   * Best matches for a name/keyword query, ranked by BM25: products matching every word (prefix match) first,
+   * otherwise products matching any word.
+   */
   search(text: string, brand: string | undefined, limit: number): IndexedProduct[] {
     const words = [...nameTokens(text), ...(brand ? normalizeText(brand).split(" ") : [])].filter(
       (w) => w.length >= 2,
     );
     if (words.length === 0) return [];
-    const match = words.map((w) => `"${w.replace(/"/g, "")}"*`).join(" ");
-    return this.db
-      .prepare(
-        "SELECT id, slug, brand, name FROM kazidomi_fts WHERE kazidomi_fts MATCH ? ORDER BY bm25(kazidomi_fts, 0, 0, 2, 1) LIMIT ?",
-      )
-      .all(match, limit) as unknown as IndexedProduct[];
+    const terms = words.map((w) => `"${w.replace(/"/g, "")}"*`);
+    const query = this.db.prepare(
+      "SELECT id, slug, brand, name FROM kazidomi_fts WHERE kazidomi_fts MATCH ? ORDER BY bm25(kazidomi_fts, 0, 0, 2, 1) LIMIT ?",
+    );
+    const all = query.all(terms.join(" "), limit) as unknown as IndexedProduct[];
+    if (all.length > 0 || terms.length === 1) return all;
+    return query.all(terms.join(" OR "), limit) as unknown as IndexedProduct[];
   }
 
   rememberEan(ean: string, id: number): void {

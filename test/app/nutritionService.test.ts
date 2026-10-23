@@ -212,3 +212,14 @@ describe("NutritionService", () => {
     expect(sources[0]).toMatchObject({ search_by_barcode: true, status: "ok" });
   });
 });
+
+describe("nameQueries", () => {
+  it("tries a short brand + key words query before the full name", async () => {
+    const { nameQueries } = await import("../../src/app/nutritionService.ts");
+    expect(nameQueries({ name: "Barre chocolat au lait pistache style Dubaï", brand: "Vivani" })).toEqual([
+      "Vivani barre chocolat lait",
+      "barre chocolat lait",
+      "Barre chocolat au lait pistache style Dubaï Vivani",
+    ]);
+  });
+});

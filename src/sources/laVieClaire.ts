@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
 import type { NutrientKey } from "../domain/nutrients.ts";
+import { brandSlug, tokenSimilarity } from "../domain/text.ts";
 import type { Offer } from "../domain/types.ts";
 import { TTL } from "../infra/cache.ts";
 import {
@@ -14,6 +15,7 @@ import {
 import { cachedSearch, eanOf, priceOf, setNumber } from "./shared.ts";
 
 const STORE_API = "https://www.lavieclaire.com/wp-json/wc/store/v1/products";
+const BRAND_PAGE_SIZE = 100;
 
 interface StoreProduct {
   id?: number;
@@ -122,15 +124,38 @@ export class LaVieClaireAdapter implements SourceAdapter {
   readonly displayName = "La Vie Claire";
   readonly capabilities = { text: true, ean: false };
 
-  constructor(private readonly deps: AdapterDeps) {}
+  private readonly deps: AdapterDeps;
 
+  constructor(deps: AdapterDeps) {
+    this.deps = deps;
+  }
+
+  /**
+   * The shop search matches contiguous phrases only, so when a brand is known the brand's range is listed instead
+   * and ranked locally by name similarity.
+   */
   async search(query: SearchQuery): Promise<Offer[]> {
     if (!query.text) return [];
+    const text = query.text;
     return cachedSearch(this.deps, this.id, query, async () => {
-      const params = new URLSearchParams({ search: query.text ?? "", per_page: String(query.limit) });
-      const res = await this.deps.http.getJson<StoreProduct[]>(`${STORE_API}?${params}`);
-      return parseLaVieClaireSearch(Array.isArray(res.body) ? res.body : []);
+      if (query.brand) {
+        const range = await this.list({ brand: brandSlug(query.brand), per_page: String(BRAND_PAGE_SIZE) });
+        if (range.length > 0) {
+          return range
+            .map((o) => ({ o, score: tokenSimilarity(text, o.name) }))
+            .filter((x) => x.score > 0)
+            .sort((a, b) => b.score - a.score)
+            .slice(0, query.limit)
+            .map((x) => x.o);
+        }
+      }
+      return this.list({ search: text, per_page: String(query.limit) });
     });
+  }
+
+  private async list(params: Record<string, string>): Promise<Offer[]> {
+    const res = await this.deps.http.getJson<StoreProduct[]>(`${STORE_API}?${new URLSearchParams(params)}`);
+    return parseLaVieClaireSearch(Array.isArray(res.body) ? res.body : []);
   }
 
   async getLabel(offer: Offer): Promise<LabelResult> {

@@ -1,6 +1,6 @@
 import type { Config } from "../config.ts";
 import { looksLikeBarcode, normalizeEan } from "../domain/ean.ts";
-import { sameBrand, tokenSimilarity } from "../domain/text.ts";
+import { nameTokens, sameBrand, tokenSimilarity } from "../domain/text.ts";
 import type { Offer, SourceId, SourceLabel, Tier } from "../domain/types.ts";
 import { decideLabel } from "../engine/decide.ts";
 import { groupOffers, isUnambiguous, type ProductGroup, rankGroups } from "../engine/identity.ts";
@@ -31,7 +31,28 @@ interface Statuses {
   notes: string[];
 }
 
+export interface ServiceDeps {
+  cache: Cache;
+  health: HealthTracker;
+  config: Config;
+  logger: Logger;
+}
+
 const MAX_RESULTS = 5;
+const SHORT_QUERY_WORDS = 3;
+const MAX_NAME_QUERIES = 4;
+
+/**
+ * Queries used to find a known product in a source that cannot search by barcode. Shop search engines often require
+ * every word to match, and some titles omit the brand, so short queries come first: brand + key words, key words
+ * alone, then the full name.
+ */
+export function nameQueries(hint: Pick<Offer, "name" | "brand">): string[] {
+  const keyWords = nameTokens(hint.name).slice(0, SHORT_QUERY_WORDS).join(" ");
+  const withBrand = `${hint.brand ?? ""} ${keyWords}`.trim();
+  const full = `${hint.name} ${hint.brand ?? ""}`.trim();
+  return [...new Set([withBrand, keyWords, full].filter((q) => q.length >= 2))];
+}
 const GROUP_TTL = { hitMs: 6 * 3600_000, missMs: 0 };
 const VERIFY_CANDIDATES = 2;
 
@@ -40,10 +61,12 @@ export class NutritionService {
   private readonly byId: Map<SourceId, SourceAdapter>;
   private readonly tierOf: (s: SourceId) => Tier;
 
-  constructor(
-    private readonly adapters: SourceAdapter[],
-    private readonly deps: { cache: Cache; health: HealthTracker; config: Config; logger: Logger },
-  ) {
+  private readonly adapters: SourceAdapter[];
+  private readonly deps: ServiceDeps;
+
+  constructor(adapters: SourceAdapter[], deps: ServiceDeps) {
+    this.adapters = adapters;
+    this.deps = deps;
     this.byId = new Map(adapters.map((a) => [a.id, a]));
     this.tierOf = (s) => this.byId.get(s)?.tier ?? "C";
   }
@@ -244,15 +267,25 @@ export class NutritionService {
       await Promise.all(direct.map((a) => this.search(a, { ean, limit: 3 }, deadline, status)))
     ).flat();
 
-    const hint = found.find((o) => o.source === "off") ?? found.find((o) => o.brand) ?? found[0];
+    // Shop names are usually French and descriptive; Open Food Facts names can be terse or in English.
+    const hints = [
+      ...found.filter((o) => o.source !== "off" && o.brand),
+      ...found.filter((o) => o.source === "off"),
+    ];
+    const hint = hints[0] ?? found[0];
     if (hint) {
-      const text = `${hint.name} ${hint.brand ?? ""}`.trim();
+      const brand = hints.find((h) => h.brand)?.brand ?? undefined;
+      const queries = [...new Set(hints.slice(0, 2).flatMap(nameQueries))].slice(0, MAX_NAME_QUERIES);
       const viaName = await Promise.all(
         indirect.map(async (a) => {
-          const offers = await this.search(a, { text, limit: MAX_RESULTS }, deadline, status);
-          const exact = offers.filter((o) => o.ean === ean);
-          if (exact.length > 0) return exact;
-          return this.verifyByPage(a, offers, hint, ean, deadline, status);
+          const candidates = new Map<string, Offer>();
+          for (const text of queries) {
+            const offers = await this.search(a, { text, brand, limit: MAX_RESULTS }, deadline, status);
+            const exact = offers.filter((o) => o.ean === ean);
+            if (exact.length > 0) return exact;
+            for (const o of offers) candidates.set(o.sourceProductId, o);
+          }
+          return this.verifyByPage(a, [...candidates.values()], hint, ean, deadline, status);
         }),
       );
       found.push(...viaName.flat());
@@ -273,11 +306,12 @@ export class NutritionService {
     status: Statuses,
   ): Promise<Offer[]> {
     const plausible = offers
-      .filter(
-        (o) =>
-          !o.ean && sameBrand(o.brand, hint.brand) !== false && tokenSimilarity(o.name, hint.name) >= 0.4,
-      )
-      .slice(0, VERIFY_CANDIDATES);
+      .filter((o) => !o.ean && sameBrand(o.brand, hint.brand) !== false)
+      .map((o) => ({ o, similarity: tokenSimilarity(o.name, hint.name) }))
+      .filter((x) => x.similarity >= 0.4)
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, VERIFY_CANDIDATES)
+      .map((x) => x.o);
     const verified: Offer[] = [];
     for (const offer of plausible) {
       const outcome = await callSource(
