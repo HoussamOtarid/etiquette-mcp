@@ -1,0 +1,107 @@
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import type { NutritionService } from "../app/nutritionService.ts";
+import { SOURCE_IDS } from "../domain/types.ts";
+
+export const SERVER_INFO = { name: "nutrition-mcp", version: "0.1.0" } as const;
+
+const readOnly = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: true,
+} as const;
+
+function respond(data: object) {
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
+    structuredContent: data as Record<string, unknown>,
+  };
+}
+
+function failure(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return { isError: true, content: [{ type: "text" as const, text: `error: ${message}` }] };
+}
+
+/** Builds the MCP server exposing the nutrition tools. One instance per HTTP request (stateless transport). */
+export function buildMcpServer(service: NutritionService): McpServer {
+  const server = new McpServer(SERVER_INFO, {
+    instructions:
+      "Nutrition labels for food products sold in France, cross-checked across several shops and Open Food Facts. " +
+      "Use get_label with a barcode or a product description; if it returns candidates, ask the user which one and " +
+      "call get_label again with that product_ref. Values are per 100 g or 100 ml (see label.basis). " +
+      "Follow the advice field: it says how far the label can be trusted.",
+  });
+
+  server.registerTool(
+    "find_product",
+    {
+      title: "Find a food product",
+      description:
+        "Searches all sources by barcode, name or keywords and returns up to 5 products, each with the stores " +
+        "selling it (price, unit price, stock, link). Does not fetch nutrition labels: pass a product_ref to get_label.",
+      inputSchema: {
+        query: z
+          .string()
+          .min(2)
+          .max(160)
+          .describe("Barcode (EAN), product name or keywords, e.g. 'pain intégral montignac'"),
+        brand: z.string().max(60).optional().describe("Brand, if known: greatly improves matching"),
+        size: z.string().max(30).optional().describe("Pack size, e.g. '500 g' or '1 L'"),
+        sources: z.array(z.enum(SOURCE_IDS)).optional().describe("Restrict the search to these sources"),
+        limit: z.number().int().min(1).max(5).optional().describe("Number of products (default and max 5)"),
+      },
+      annotations: { title: "Find a food product", ...readOnly },
+    },
+    async ({ query, brand, size, sources, limit }) => {
+      try {
+        return respond(await service.findProduct({ query, brand, size, sources, limit }));
+      } catch (error) {
+        return failure(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_label",
+    {
+      title: "Get the best nutrition label",
+      description:
+        "Returns the best-supported nutrition label for one product: per-nutrient value with how many sources agree, " +
+        "an overall confidence, flags (self-check failures, outdated labels, missing nutrients), advice, ingredients, " +
+        "allergens, prices per store, and each source's structured and raw label (which may list extra nutrients). " +
+        "Accepts a product_ref from find_product, a barcode, or a product description (returns candidates if ambiguous).",
+      inputSchema: {
+        product: z
+          .string()
+          .min(2)
+          .max(200)
+          .describe("product_ref (ean:… / grp:…), a barcode, or a product description"),
+        brand: z.string().max(60).optional().describe("Brand, when passing a description"),
+        include_raw: z.boolean().optional().describe("Include per-source labels and raw text (default true)"),
+      },
+      annotations: { title: "Get the best nutrition label", ...readOnly },
+    },
+    async ({ product, brand, include_raw }) => {
+      try {
+        return respond(await service.getLabel({ product, brand, includeRaw: include_raw }));
+      } catch (error) {
+        return failure(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "list_sources",
+    {
+      title: "List data sources",
+      description: "Lists the sources with their capabilities and recent health, to explain missing data.",
+      inputSchema: {},
+      annotations: { title: "List data sources", ...readOnly, openWorldHint: false },
+    },
+    async () => respond({ sources: service.listSources() }),
+  );
+
+  return server;
+}
