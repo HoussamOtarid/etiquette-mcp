@@ -1,0 +1,42 @@
+{
+ "hits": [
+  {
+   "objectID": "39835342012551",
+   "title": "Boisson Avoine Bio",
+   "vendor": "La Fourche",
+   "barcode": "3760324840986",
+   "handle": "la-fourche-boisson-avoine-bio-1l",
+   "price": 1.39,
+   "weight": "1kg",
+   "inventory_available": true,
+   "meta": {
+    "marketing": {
+     "nutritional_values_table_data": "{\"header\":[\"\",\"100g\"],\"body\":[[\"energy_100g\",\"182 kJ / 43 kcal\"],[\"fat_100g\",\"1.2 g\"],[\"saturated-fat_100g\",\"0.2 g\"],[\"carbohydrates_100g\",\"7.2 g\"],[\"sugars_100g\",\"5 g\"],[\"fiber_100g\",\"0.8 g\"],[\"proteins_100g\",\"0.5 g\"],[\"salt_100g\",\"0.08 g\"]]}",
+     "nutritional_values": "Energie : 182 kJ – 43 kcal\nMatières grasses : 1,2 g\ndont acides gras saturés : 0,2 g\nGlucides : 7,2 g\ndont sucres : 5,0 g\nFibres : 0,8 g\nProtéines : 0,5 g\nSel 0,08 g.",
+     "nutriscore_grade": "B",
+     "ingredients": "Eau, avoine* (11%), huile de tournesol*, sel marin. \n *Ingrédients issus de l’agriculture biologique. ",
+     "allergen": "Contient du GLUTEN (avoine). "
+    }
+   }
+  },
+  {
+   "objectID": "40050949357703",
+   "title": "Boisson Avoine Nature Origine France Bio",
+   "vendor": "Bonneterre",
+   "barcode": "3396411221972",
+   "handle": "bonneterre-boisson-avoine-nature-origine-france-bio-1-03l",
+   "price": 1.83,
+   "weight": "1kg",
+   "inventory_available": true,
+   "meta": {
+    "marketing": {
+     "nutritional_values_table_data": "{\"header\":[\"\",\"100g\"],\"body\":[[\"energy_100g\",\"188 kJ / 45 kcal\"],[\"fat_100g\",\"1.4 g\"],[\"saturated-fat_100g\",\"0.2 g\"],[\"carbohydrates_100g\",\"7 g\"],[\"sugars_100g\",\"4 g\"],[\"fiber_100g\",\"0 g\"],[\"proteins_100g\",\"0.7 g\"],[\"salt_100g\",\"0.09 g\"]]}",
+     "nutritional_values": "Energie : 188 kJ / 45 kcal \nMatières grasses (g) : 1.4 / Dont acides gras saturés (g) : 0.2 / Glucides (g) : 7 / Dont sucres (g) : 4 / Fibres alimentaires (g) : 0 / Protéines (g) : 0.7 / Sel (g) : 0.09",
+     "nutriscore_grade": "B",
+     "ingredients": "Eau, avoine* (11%), huile de tournesol* pressée à froid, sel marin. *Ingrédients issus de l'Agriculture Biologique.",
+     "allergen": "Contient du GLUTEN (avoine). "
+    }
+   }
+  }
+ ]
+}

@@ -1,0 +1,90 @@
+{
+ "id": 367,
+ "title": "Boisson Avoine Sans Gluten",
+ "nameBo": "Lima - Boisson Avoine Sans Gluten BIO 1000ml",
+ "volume": 1000,
+ "weight": 0,
+ "eanPrimary": "5411788047258",
+ "eanSecondary": null,
+ "isAvailable": true,
+ "energyKJ": 178,
+ "energyKCAL": 42,
+ "lipid": 0.8,
+ "lipidSugar": 0,
+ "carbohydrate": 7.7,
+ "carbohydrateSuggar": 4.5,
+ "fiber": 0.7,
+ "proteins": 0.7,
+ "salt": 0.09,
+ "prices": {
+  "displayPricePerMeasureUnit": true,
+  "appliedPrice": "promo_or_standard",
+  "prices": {
+   "standard": {
+    "weightPrice": null,
+    "volumePrice": 2.95,
+    "priceInclude": 2.95,
+    "date_start": null,
+    "date_end": null,
+    "reduction_amount": 0,
+    "reduction_type": 0
+   },
+   "promo_or_standard": {
+    "weightPrice": null,
+    "volumePrice": 2.95,
+    "priceInclude": 2.95,
+    "date_start": null,
+    "date_end": null,
+    "reduction_amount": 0,
+    "reduction_type": 0
+   },
+   "promo_or_membership": {
+    "weightPrice": null,
+    "volumePrice": 2.51,
+    "priceInclude": 2.51,
+    "date_start": null,
+    "date_end": null,
+    "reduction_amount": 0,
+    "reduction_type": 0
+   },
+   "membership": {
+    "weightPrice": null,
+    "volumePrice": 2.51,
+    "priceInclude": 2.51,
+    "date_start": null,
+    "date_end": null,
+    "reduction_amount": 15,
+    "reduction_type": "percentage"
+   },
+   "current_applied_price": {
+    "weightPrice": null,
+    "volumePrice": 2.95,
+    "priceInclude": 2.95
+   }
+  },
+  "box_reductions": []
+ },
+ "brand": {
+  "data": {
+   "title": "Lima"
+  }
+ },
+ "allergen": [
+  {
+   "title": "Gluten",
+   "url": "/fr/preferences/gluten",
+   "pictogram": "wheat.png"
+  },
+  {
+   "title": "Fruits à coques ",
+   "url": "/fr/preferences/fruits-a-coques",
+   "pictogram": "nuts.png"
+  },
+  {
+   "title": "Soja",
+   "url": "/fr/preferences/soja",
+   "pictogram": "soy.png"
+  }
+ ],
+ "description": "Ingrédients: Eau , AVOINE * ( 11,5% ) , huile de tournesol * , sel de mer * = De l'agriculture biologique certifiée"
+}
