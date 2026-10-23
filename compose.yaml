@@ -1,0 +1,16 @@
+services:
+  nutrition-mcp:
+    build: .
+    image: nutrition-mcp:local
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 384m

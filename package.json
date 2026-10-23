@@ -12,13 +12,13 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
-    "dev": "node --env-file-if-exists=.env --watch --experimental-strip-types src/main.ts",
+    "dev": "node --env-file-if-exists=.env --watch src/main.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "biome check .",
     "format": "biome format --write .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "smoke": "node --experimental-strip-types scripts/smoke.ts",
+    "smoke": "node scripts/smoke.ts",
     "check": "npm run typecheck && npm run lint && npm test"
   },
   "dependencies": {

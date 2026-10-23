@@ -61,7 +61,8 @@ async function main(): Promise<void> {
       `${Date.now() - started}ms`,
     ];
     console.log(line.join("  "));
-    if (r.candidates) console.log(`   candidates: ${r.candidates.map((c) => `${c.name} [${c.brand ?? "?"}]`).join(" | ")}`);
+    if (r.candidates)
+      console.log(`   candidates: ${r.candidates.map((c) => `${c.name} [${c.brand ?? "?"}]`).join(" | ")}`);
     const failing = Object.entries(r.sources).filter(([, s]) => s !== "ok" && s !== "not_found");
     if (failing.length) console.log(`   source issues: ${failing.map(([s, st]) => `${s}=${st}`).join(", ")}`);
   }
