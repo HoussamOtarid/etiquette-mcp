@@ -1,0 +1,34 @@
+[
+ {
+  "id": 23220,
+  "name": "Boisson avoine vanille 1 l bio",
+  "permalink": "https://www.lavieclaire.com/produit/boisson-avoine-vanille-1-l-bio/",
+  "is_in_stock": true,
+  "brands": [
+   {
+    "name": "LIMA"
+   }
+  ],
+  "prices": {
+   "price": "319",
+   "currency_code": "EUR",
+   "currency_minor_unit": 2
+  }
+ },
+ {
+  "id": 20121,
+  "name": "Boisson avoine nature bio",
+  "permalink": "https://www.lavieclaire.com/produit/boisson-avoine-nature-bio/",
+  "is_in_stock": true,
+  "brands": [
+   {
+    "name": "LA VIE CLAIRE"
+   }
+  ],
+  "prices": {
+   "price": "179",
+   "currency_code": "EUR",
+   "currency_minor_unit": 2
+  }
+ }
+]

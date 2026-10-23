@@ -1,0 +1,59 @@
+{
+ "responses": [
+  {
+   "hits": [
+    {
+     "id": "49263",
+     "selling_name": "Yaourts nature, U (4 x 125 g)",
+     "barcode": "3256224221302",
+     "pack_unit_notation": "pièce de 125.0g",
+     "alternates": {
+      "1-9": {
+       "price": 1.05,
+       "stock_quantity": 56,
+       "unlimited_stocks": false,
+       "label_unit_notation_item": {
+        "formatted_selling_unit": "",
+        "formatted_weight_price": "2,10€ le kg"
+       }
+      }
+     }
+    },
+    {
+     "id": "68210",
+     "selling_name": "Yaourt brassé nature, U (4 x 125 g)",
+     "barcode": "3256221235401",
+     "pack_unit_notation": "pièce de 500.0g",
+     "alternates": {
+      "1-9": {
+       "price": 1.4,
+       "stock_quantity": 5,
+       "unlimited_stocks": false,
+       "label_unit_notation_item": {
+        "formatted_selling_unit": "",
+        "formatted_weight_price": "2,80€ le kg"
+       }
+      }
+     }
+    },
+    {
+     "id": "49994",
+     "selling_name": "Yaourt nature BIO, U (4 x 125 g)",
+     "barcode": "3256220362399",
+     "pack_unit_notation": "pièce de 500.0g",
+     "alternates": {
+      "1-9": {
+       "price": 1.15,
+       "stock_quantity": 50,
+       "unlimited_stocks": false,
+       "label_unit_notation_item": {
+        "formatted_selling_unit": "",
+        "formatted_weight_price": "2,31€ le kg"
+       }
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,65 @@
+[
+ {
+  "type": "product",
+  "name": [
+   "Boisson avoine 1L"
+  ],
+  "ean": [
+   "3760121219961"
+  ],
+  "option_text_brand": [
+   "Biocoop"
+  ],
+  "sku": "LS2007_000",
+  "mesure": "1000&nbsp;g",
+  "price": 1.95,
+  "stock": {
+   "is_in_stock": true,
+   "qty": 3386,
+   "in_qty": 1
+  },
+  "url": "https://www.biocoop.fr/boisson-avoine-1l-ls2007-000.html"
+ },
+ {
+  "type": "product",
+  "name": [
+   "Boisson avoine 25cl"
+  ],
+  "ean": [
+   "8023678728702"
+  ],
+  "option_text_brand": [
+   "Isola Bio"
+  ],
+  "sku": "AB5131_000",
+  "mesure": "250&nbsp;g",
+  "price": 1.35,
+  "stock": {
+   "is_in_stock": true,
+   "qty": 1754,
+   "in_qty": 1
+  },
+  "url": "https://www.biocoop.fr/boisson-avoine-25cl-ab5131-000.html"
+ },
+ {
+  "type": "product",
+  "name": [
+   "Boisson avoine chocolat 1L"
+  ],
+  "ean": [
+   "8023678729150"
+  ],
+  "option_text_brand": [
+   "Isola Bio"
+  ],
+  "sku": "AB5111_000",
+  "mesure": "1000&nbsp;g",
+  "price": 3.3,
+  "stock": {
+   "is_in_stock": true,
+   "qty": 1491,
+   "in_qty": 1
+  },
+  "url": "https://www.biocoop.fr/boisson-avoine-chocolat-1l-ab5111-000.html"
+ }
+]
