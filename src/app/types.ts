@@ -4,7 +4,15 @@ import type { MatchKind } from "../engine/identity.ts";
 import type { Agreement, Confidence, Flag } from "../engine/types.ts";
 
 /** Outcome of calling one source during a request. */
-export type SourceStatus = "ok" | "not_found" | "timeout" | "rate_limited" | "error" | "not_supported";
+/** "skipped": not called for this request (not needed, or answered from the cache). */
+export type SourceStatus =
+  | "ok"
+  | "not_found"
+  | "timeout"
+  | "rate_limited"
+  | "error"
+  | "not_supported"
+  | "skipped";
 
 export type Qualifier = "lt" | "gt" | "traces";
 

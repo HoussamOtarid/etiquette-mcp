@@ -29,6 +29,8 @@ A `get_label` answer contains:
 - `advice`: a short instruction for the calling model
 - `variants`: same brand, other sizes or flavours
 - `ingredients` (with language), `allergens`, `traces`, `nutriscore`, and `offers` with prices per store
+- `sources`: the status of every source for this request (`ok`, `not_found`, `timeout`, `rate_limited`, `error`, or
+  `skipped` when it was not needed or the answer came from the cache)
 - `per_source`: each source's structured label, raw label text, unmapped extra nutrients (vitamins, minerals, …) and
   when the source last updated it, if known
 

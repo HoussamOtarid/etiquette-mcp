@@ -235,6 +235,12 @@ export class NutritionService {
   }
 
   async findProduct(input: FindProductInput): Promise<FindProductResult> {
+    const result = await this.searchProducts(input);
+    this.markSkipped(result.sources, this.selected(input.sources));
+    return result;
+  }
+
+  private async searchProducts(input: FindProductInput): Promise<FindProductResult> {
     const deadline = Date.now() + this.deps.config.requestBudgetMs;
     const limit = Math.min(input.limit ?? MAX_RESULTS, MAX_RESULTS);
     const adapters = this.selected(input.sources);
@@ -261,7 +267,7 @@ export class NutritionService {
     return {
       query_kind: "text",
       ...this.hints(status),
-      products: top.map((g) => productView(g, { tierOf: this.tierOf, score: g.score })),
+      products: top.map((g) => this.view(g)),
       sources: status.sources,
       notes: status.notes,
     };
@@ -269,6 +275,7 @@ export class NutritionService {
 
   async getLabel(input: GetLabelInput): Promise<GetLabelResult> {
     const result = await this.fullLabel(input);
+    this.markSkipped(result.sources, this.selected(input.sources));
     return input.compact ? compactLabelResult(result) : result;
   }
 
@@ -289,6 +296,7 @@ export class NutritionService {
     }
 
     const { group, ranked } = resolution;
+    this.noteBrandMismatch(status, input.brand, group);
     const labels = await this.labelsFor(group, deadline, status);
     const decided = decideLabel({ labels, productName: group.name, tierOf: this.tierOf });
     const product = productView(group, { tierOf: this.tierOf });
@@ -355,6 +363,12 @@ export class NutritionService {
   }
 
   async comparePrices(input: ComparePricesInput): Promise<ComparePricesResult> {
+    const result = await this.pricesFor(input);
+    this.markSkipped(result.sources, this.selected(input.sources));
+    return result;
+  }
+
+  private async pricesFor(input: ComparePricesInput): Promise<ComparePricesResult> {
     const deadline = Date.now() + this.deps.config.requestBudgetMs;
     const status: Statuses = { sources: {}, notes: [PRICE_NOTE] };
     const adapters = this.selected(input.sources);
@@ -373,6 +387,7 @@ export class NutritionService {
       };
     }
     const { group } = resolution;
+    this.noteBrandMismatch(status, input.brand, group);
     const offers = rankByPrice(group.offers);
     const views = offers.map(priceView);
     if (views.length === 0) status.notes.push("No store lists a price for this product.");
@@ -459,8 +474,24 @@ export class NutritionService {
     for (const g of groups) this.deps.cache.set("group", g.ref, g, GROUP_TTL.hitMs);
   }
 
+  /** Scores are shown on a 0–1 scale; ranking uses the raw score, which bonuses can push above 1. */
   private view(g: RankedGroup | ProductGroup) {
-    return productView(g, { tierOf: this.tierOf, score: "score" in g ? (g.score as number) : undefined });
+    const score = "score" in g ? Math.min(1, Math.max(0, g.score as number)) : undefined;
+    return productView(g, { tierOf: this.tierOf, score });
+  }
+
+  /** Every selected source appears in the result: the ones not called are "skipped". */
+  private markSkipped(sources: Partial<Record<SourceId, SourceStatus>>, adapters: SourceAdapter[]): void {
+    for (const a of adapters) if (!sources[a.id]) sources[a.id] = "skipped";
+  }
+
+  private noteBrandMismatch(status: Statuses, brand: string | undefined, group: ProductGroup): void {
+    if (!brand || sameBrand(group.brand, brand) === true) return;
+    status.notes.push(
+      group.brand
+        ? `The product found is from ${group.brand}, not ${brand}.`
+        : `The product found has no brand listed; ${brand} could not be confirmed.`,
+    );
   }
 
   private hints(status: Statuses): MatchHints {

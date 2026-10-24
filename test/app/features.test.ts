@@ -170,6 +170,21 @@ describe("service features", () => {
     expect(first?.ready_to_apply?.per_100.energy_kcal).toBe(60);
   });
 
+  it("notes a brand mismatch on a found product and shows scores from 0 to 1", async () => {
+    const shop = fake("labellevie", "C", () => [
+      offer("labellevie", "Steak haché pur bœuf 5%", {
+        ean: "3760099537883",
+        label: label("labellevie", 125, 5, 0, 21),
+      }),
+    ]);
+    const svc = service([shop]);
+    const found = await svc.getLabel({ product: "steak haché pur bœuf 5%", brand: "Bonval" });
+    expect(found.status).toBe("found");
+    expect(found.notes).toContain("The product found has no brand listed; Bonval could not be confirmed.");
+    const search = await svc.findProduct({ query: "steak haché pur bœuf 5%" });
+    expect(search.products[0]?.score).toBeLessThanOrEqual(1);
+  });
+
   it("flags a missing brand and weak matches", async () => {
     const shop = fake("naturalia", "C", () => [
       offer("naturalia", "Chocolat noir à l'orange", { brand: "Côte d'Or", ean: "7622210000001" }),

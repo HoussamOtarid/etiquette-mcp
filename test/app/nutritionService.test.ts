@@ -169,7 +169,7 @@ describe("NutritionService", () => {
     expect(result.query_kind).toBe("text");
     expect(result.products[0]).toMatchObject({ ean: EAN, match: "ean" });
     expect(result.products[0]?.offers?.map((o) => o.source).sort()).toEqual(["lafourche", "naturalia"]);
-    expect(result.sources.off).toBeUndefined();
+    expect(result.sources.off).toBe("skipped");
 
     const offOnly = await service([off]).findProduct({ query: "pain intégral montignac" });
     expect(offOnly.products[0]?.offers?.map((o) => o.source)).toEqual(["off"]);

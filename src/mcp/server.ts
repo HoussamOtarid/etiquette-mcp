@@ -37,7 +37,9 @@ export function buildMcpServer(service: NutritionService): McpServer {
       "Use get_label with a barcode (no product_ref needed) or a product description; if it returns candidates, ask " +
       "the user which one and call get_label again with that product_ref. Values are per 100 g or 100 ml (see " +
       "label.basis). Follow the advice field: it says how far the label can be trusted. status 'incomplete' means " +
-      "some sources did not answer yet: retry after retry_after_s instead of treating the result as final.",
+      "some sources did not answer yet: retry after retry_after_s instead of treating the result as final. sources " +
+      "lists every source: 'skipped' means it was not needed for this request (e.g. Open Food Facts name search " +
+      "when stores found the product) or the answer came from the cache. Scores range from 0 to 1.",
   });
 
   server.registerTool(
