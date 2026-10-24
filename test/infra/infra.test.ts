@@ -104,6 +104,24 @@ describe("http client", () => {
     expect(res.status).toBe(404);
   });
 
+  it("applies wildcard host limits to subdomains", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("{}", { status: 200 })),
+    );
+    const limited = new HttpClient({
+      userAgent: "t",
+      timeoutMs: 1000,
+      defaultLimit: { intervalMs: 0, concurrency: 4 },
+      limits: { "*.search.example": { intervalMs: 10_000, concurrency: 1 } },
+      maxQueueWaitMs: 100,
+      logger: silentLogger,
+    });
+    await limited.getText("https://a1-dsn.search.example/q");
+    await expect(limited.getText("https://b2-dsn.search.example/q")).rejects.toBeInstanceOf(RateLimitedError);
+    await expect(limited.getText("https://other.example/q")).resolves.toMatchObject({ status: 200 });
+  });
+
   it("refuses to queue beyond the allowed wait", async () => {
     vi.stubGlobal(
       "fetch",

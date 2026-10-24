@@ -27,6 +27,7 @@ export interface HttpClientOptions {
   userAgent: string;
   timeoutMs: number;
   defaultLimit: RateLimit;
+  /** Per-host limits; keys are exact hosts or "*.domain" patterns. */
   limits?: Record<string, RateLimit>;
   /** Refuse to queue a request that would wait longer than this (the caller would have given up anyway). */
   maxQueueWaitMs?: number;
@@ -86,11 +87,19 @@ export class HttpClient {
     );
   }
 
+  /**
+   * One limiter per configured key: an exact host, or a "*.domain" pattern shared by all its subdomains.
+   */
   private limiterFor(host: string): HostLimiter {
-    let limiter = this.limiters.get(host);
+    const limits = this.options.limits ?? {};
+    const key =
+      host in limits
+        ? host
+        : (Object.keys(limits).find((k) => k.startsWith("*.") && host.endsWith(k.slice(1))) ?? host);
+    let limiter = this.limiters.get(key);
     if (!limiter) {
-      limiter = new HostLimiter(this.options.limits?.[host] ?? this.options.defaultLimit);
-      this.limiters.set(host, limiter);
+      limiter = new HostLimiter(limits[key] ?? this.options.defaultLimit);
+      this.limiters.set(key, limiter);
     }
     return limiter;
   }
