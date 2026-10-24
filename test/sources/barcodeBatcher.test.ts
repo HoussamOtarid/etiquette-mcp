@@ -2,7 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import { HttpError } from "../../src/infra/http.ts";
 import { BarcodeBatcher } from "../../src/sources/barcodeBatcher.ts";
 
-const options = { maxBatch: 50, maxRetries: 3, baseBackoffMs: 5000, maxBackoffMs: 60_000 };
+const options = {
+  maxBatch: 50,
+  maxRetries: 3,
+  baseBackoffMs: 5000,
+  maxBackoffMs: 60_000,
+  manyCooldownMs: 120_000,
+};
 
 describe("BarcodeBatcher", () => {
   it("coalesces lookups made while a request is in flight", async () => {
@@ -38,6 +44,26 @@ describe("BarcodeBatcher", () => {
 
     expect(await batcher.lookup("a")).toBe("ok");
     expect(sleep.mock.calls.map((c) => c[0])).toEqual([12_000, 10_000]);
+  });
+
+  it("falls back to single lookups while the batch endpoint is throttled", async () => {
+    const fetchMany = vi.fn(async (): Promise<Map<string, string>> => {
+      throw new HttpError(503, "world.openfoodfacts.org");
+    });
+    const fetchOne = vi.fn(async (code: string) => `one:${code}`);
+    const batcher = new BarcodeBatcher(fetchOne, fetchMany, { ...options, sleep: async () => {} });
+    let release: () => void = () => {};
+    fetchOne.mockImplementationOnce((code: string) => new Promise((r) => (release = () => r(`one:${code}`))));
+    const first = batcher.lookup("a");
+    const rest = [batcher.lookup("b"), batcher.lookup("c")];
+    release();
+    expect(await first).toBe("one:a");
+    expect(await Promise.all(rest)).toEqual(["one:b", "one:c"]);
+    expect(fetchMany).toHaveBeenCalledTimes(1);
+
+    const later = [batcher.lookup("d"), batcher.lookup("e")];
+    expect(await Promise.all(later)).toEqual(["one:d", "one:e"]);
+    expect(fetchMany).toHaveBeenCalledTimes(1);
   });
 
   it("gives up after the retry limit and on other errors", async () => {

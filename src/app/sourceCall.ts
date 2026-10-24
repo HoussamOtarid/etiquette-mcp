@@ -9,7 +9,10 @@ export type Outcome<T> =
 
 function classify(error: unknown): OutcomeKind {
   if (error instanceof RateLimitedError) return "rate_limited";
-  if (error instanceof HttpError) return error.status === 404 ? "not_found" : "http_error";
+  if (error instanceof HttpError) {
+    if (error.status === 404) return "not_found";
+    return error.status === 429 || error.status === 503 ? "rate_limited" : "http_error";
+  }
   if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError"))
     return "timeout";
   if (error instanceof SyntaxError) return "parse_error";

@@ -13,6 +13,7 @@ export type Flag =
   | "self_check_failed"
   | "decimal_slip_suspected"
   | "zero_suspected"
+  | "kj_inconsistent"
   | "basis_inferred"
   | "version_drift_suspected"
   | "single_source"
@@ -29,6 +30,8 @@ export interface SelfCheckResult {
   /** Core macros stated as 0 that would explain the missing energy. */
   zeroSuspects?: NutrientKey[];
   kjKcalMismatch?: boolean;
+  /** kcal agrees with the macros but kJ does not: the kJ value is likely wrong. */
+  kjSuspect?: boolean;
 }
 
 /** One source's label after normalisation, ready to vote. */

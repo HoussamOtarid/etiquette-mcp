@@ -38,7 +38,7 @@ export interface HttpClientOptions {
   userAgent: string;
   timeoutMs: number;
   defaultLimit: RateLimit;
-  /** Per-host limits; keys are exact hosts or "*.domain" patterns. */
+  /** Per-host limits; keys are "host/path-prefix", exact hosts or "*.domain" patterns. */
   limits?: Record<string, RateLimit>;
   /** Refuse to queue a request that would wait longer than this (the caller would have given up anyway). */
   maxQueueWaitMs?: number;
@@ -102,14 +102,18 @@ export class HttpClient {
   }
 
   /**
-   * One limiter per configured key: an exact host, or a "*.domain" pattern shared by all its subdomains.
+   * One limiter per configured key, most specific first: "host/path-prefix" (endpoints with their own quota), an exact
+   * host, or a "*.domain" pattern shared by all its subdomains.
    */
-  private limiterFor(host: string): HostLimiter {
+  private limiterFor(url: URL): HostLimiter {
     const limits = this.options.limits ?? {};
+    const keys = Object.keys(limits);
+    const target = `${url.host}${url.pathname}`;
     const key =
-      host in limits
-        ? host
-        : (Object.keys(limits).find((k) => k.startsWith("*.") && host.endsWith(k.slice(1))) ?? host);
+      keys.filter((k) => k.includes("/") && target.startsWith(k)).sort((a, b) => b.length - a.length)[0] ??
+      (url.host in limits ? url.host : undefined) ??
+      keys.find((k) => k.startsWith("*.") && url.host.endsWith(k.slice(1))) ??
+      url.host;
     let limiter = this.limiters.get(key);
     if (!limiter) {
       limiter = new HostLimiter(limits[key] ?? this.options.defaultLimit);
@@ -124,8 +128,9 @@ export class HttpClient {
     opts: RequestOptions,
     read: (r: Response) => Promise<T>,
   ): Promise<HttpResponse<T>> {
-    const host = new URL(url).host;
-    const limiter = this.limiterFor(host);
+    const parsed = new URL(url);
+    const host = parsed.host;
+    const limiter = this.limiterFor(parsed);
     const maxWait = this.options.maxQueueWaitMs;
     if (maxWait !== undefined && limiter.estimatedWaitMs() > maxWait) throw new RateLimitedError(host);
 

@@ -122,6 +122,27 @@ describe("http client", () => {
     await expect(limited.getText("https://other.example/q")).resolves.toMatchObject({ status: 200 });
   });
 
+  it("applies path-specific limits before host limits", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("{}", { status: 200 })),
+    );
+    const limited = new HttpClient({
+      userAgent: "t",
+      timeoutMs: 1000,
+      defaultLimit: { intervalMs: 0, concurrency: 4 },
+      limits: {
+        "api.example/search": { intervalMs: 10_000, concurrency: 1 },
+        "api.example": { intervalMs: 0, concurrency: 4 },
+      },
+      maxQueueWaitMs: 100,
+      logger: silentLogger,
+    });
+    await limited.getText("https://api.example/search?q=1");
+    await expect(limited.getText("https://api.example/search?q=2")).rejects.toBeInstanceOf(RateLimitedError);
+    await expect(limited.getText("https://api.example/product/1")).resolves.toMatchObject({ status: 200 });
+  });
+
   it("refuses to queue beyond the allowed wait", async () => {
     vi.stubGlobal(
       "fetch",

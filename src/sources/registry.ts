@@ -24,6 +24,8 @@ export function createAdapters(deps: AdapterDeps): SourceAdapter[] {
 /** Per-host politeness limits (requests are spaced; a few run concurrently at most). */
 export const HOST_LIMITS = {
   // Documented quotas: 15 product reads and 10 searches per minute per IP; the batch endpoint is a search.
+  "world.openfoodfacts.org/api/v2/product": { intervalMs: 4200, concurrency: 1 },
+  "world.openfoodfacts.org/api/v2/search": { intervalMs: 6500, concurrency: 1 },
   "world.openfoodfacts.org": { intervalMs: 6500, concurrency: 1 },
   "search.openfoodfacts.org": { intervalMs: 6500, concurrency: 1 },
   "lafourche.fr": { intervalMs: 2000, concurrency: 1 },
@@ -31,7 +33,7 @@ export const HOST_LIMITS = {
   "api.kazidomi.com": { intervalMs: 1000, concurrency: 2 },
   "www.kazidomi.com": { intervalMs: 2000, concurrency: 1 },
   "www.biocoop.fr": { intervalMs: 2000, concurrency: 2 },
-  "www.lavieclaire.com": { intervalMs: 2000, concurrency: 2 },
+  "www.lavieclaire.com": { intervalMs: 1000, concurrency: 2 },
   "www.naturalia.fr": { intervalMs: 2000, concurrency: 2 },
   "search.deleev.com": { intervalMs: 1000, concurrency: 2 },
   "www.labellevie.com": { intervalMs: 2000, concurrency: 2 },

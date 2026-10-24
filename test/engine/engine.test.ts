@@ -105,6 +105,27 @@ describe("self-check", () => {
     expect(selfCheck({ energy_kcal: 2, fat_g: 0, carbohydrates_g: 0.5, protein_g: 0 }).status).toBe("pass");
   });
 
+  it("suspects only kJ when kcal agrees with the macros (Greendoz, OFF)", () => {
+    const values = {
+      energy_kcal: 452.1,
+      energy_kj: 1670,
+      fat_g: 19.6,
+      carbohydrates_g: 53.3,
+      protein_g: 10.4,
+      fiber_g: 7,
+    };
+    const result = selfCheck(values);
+    expect(result).toMatchObject({ status: "pass", kjSuspect: true });
+    expect(result.decimalSlip).toBeUndefined();
+    const n = normalizeLabel(
+      label("off", { kj: 1670, kcal: 452.1, fat: 19.6, carbs: 53.3, protein: 10.4, fiber: 7 }),
+      "A",
+    );
+    expect(n.values.energy_kj).toBeUndefined();
+    expect(n.values.protein_g).toBe(10.4);
+    expect(n.flags).toEqual(["kj_inconsistent"]);
+  });
+
   it("reports insufficient data instead of guessing", () => {
     expect(selfCheck({ energy_kcal: 54 }).status).toBe("insufficient");
   });

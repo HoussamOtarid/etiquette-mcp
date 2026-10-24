@@ -112,6 +112,7 @@ const MIN_RELEVANCE = 0.2;
 const MIN_NULL_BRAND_RELEVANCE = 0.5;
 const WEAK_SHOP_MATCH = 0.4;
 const MAX_ALTERNATIVES = 10;
+const BATCH_CONCURRENCY = 3;
 const ALTERNATIVE_QUERY_WORDS = 4;
 const AMBIGUOUS_ADVICE =
   "Several products match. Ask the user which one, then call get_label with its product_ref.";
@@ -124,6 +125,23 @@ const PRICE_NOTE = "Online list prices at lookup time; they can differ by shop, 
  * With a brand given, other brands are dropped when products of that brand were found (products without a brand stay
  * if their name matches well). Clearly unrelated results are dropped when better ones exist.
  */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i] as T);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 /** The shops' results plausibly include the product: one matches the brand (if given) and the name reasonably well. */
 function shopsFoundIt(offers: Offer[], query: string, brand: string | undefined): boolean {
   return offers.some(
@@ -275,14 +293,26 @@ export class NutritionService {
     return result;
   }
 
-  /** Several products in one call. Their Open Food Facts lookups share requests; shops stay within their limits. */
+  /**
+   * Several products in one call. All barcodes are sent to Open Food Facts up front, where concurrent lookups share
+   * requests; products are then processed a few at a time so shop queues stay within their time limits.
+   */
   async getLabels(input: GetLabelsInput): Promise<GetLabelsResult> {
-    const results = await Promise.all(
-      input.products.map(async (product) => ({
-        input: product,
-        ...(await this.getLabel({ product, sources: input.sources, includeRaw: input.includeRaw ?? false })),
-      })),
-    );
+    const off = this.selected(input.sources).find((a) => a.id === "off");
+    if (off) {
+      for (const product of input.products) {
+        const ean = product.startsWith("ean:")
+          ? normalizeEan(product.slice(4))
+          : looksLikeBarcode(product)
+            ? normalizeEan(product)
+            : null;
+        if (ean) off.search({ ean, limit: 1 }).catch(() => undefined);
+      }
+    }
+    const results = await mapWithConcurrency(input.products, BATCH_CONCURRENCY, async (product) => ({
+      input: product,
+      ...(await this.getLabel({ product, sources: input.sources, includeRaw: input.includeRaw ?? false })),
+    }));
     return { results };
   }
 

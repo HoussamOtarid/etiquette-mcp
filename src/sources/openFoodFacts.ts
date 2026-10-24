@@ -158,7 +158,13 @@ export class OpenFoodFactsAdapter implements SourceAdapter {
     this.batcher = new BarcodeBatcher<OffProduct>(
       (code) => this.fetchProduct(code),
       (codes) => this.fetchProducts(codes),
-      { maxBatch: MAX_BATCH, maxRetries: 3, baseBackoffMs: 5000, maxBackoffMs: 60_000 },
+      {
+        maxBatch: MAX_BATCH,
+        maxRetries: 4,
+        baseBackoffMs: 5000,
+        maxBackoffMs: 60_000,
+        manyCooldownMs: 120_000,
+      },
     );
   }
 

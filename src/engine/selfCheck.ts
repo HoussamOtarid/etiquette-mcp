@@ -25,6 +25,7 @@ const CORE_MACROS: NutrientKey[] = ["fat_g", "carbohydrates_g", "protein_g"];
 
 /**
  * Checks a label against itself: stated energy vs energy computed from macros, and kJ vs kcal.
+ * When kcal agrees with the macros but kJ does not, only the kJ value is suspect (the label still passes).
  * When the energy check fails:
  * - if the stated energy exceeds the macros and a core macro is 0, that 0 is the likely culprit;
  * - otherwise tries a ×10 / ÷10 correction on each macro to spot decimal slips.
@@ -49,8 +50,12 @@ export function selfCheck(values: Values): SelfCheckResult {
     return result;
   }
 
-  if (energyConsistent(stated, computed) && !result.kjKcalMismatch) {
+  if (energyConsistent(stated, computed)) {
     result.status = "pass";
+    if (result.kjKcalMismatch) {
+      result.kjSuspect = true;
+      result.kjKcalMismatch = false;
+    }
     return result;
   }
 
@@ -60,13 +65,19 @@ export function selfCheck(values: Values): SelfCheckResult {
     if (stated > computed) result.zeroSuspects = zeros;
     return result;
   }
+  const error = Math.abs(stated - computed);
   for (const key of CORE_MACROS) {
     const original = values[key];
     if (original === undefined || original === 0) continue;
     for (const factor of [10, 0.1]) {
       const likely = round(original * factor, 3);
       const recomputed = kcalFromMacros({ ...values, [key]: likely });
-      if (recomputed !== null && energyConsistent(stated, recomputed) && likely <= 100) {
+      if (
+        recomputed !== null &&
+        likely <= 100 &&
+        energyConsistent(stated, recomputed) &&
+        Math.abs(stated - recomputed) < error
+      ) {
         result.decimalSlip = { key, stated: original, likely };
         return result;
       }

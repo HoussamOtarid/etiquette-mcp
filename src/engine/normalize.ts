@@ -83,6 +83,11 @@ export function normalizeLabel(label: SourceLabel, tier: Tier): NormalizedLabel 
     drop("sugars_g");
 
   const check = selfCheck(values);
+  if (check.kjSuspect) {
+    addFlag(flags, "kj_inconsistent");
+    notes.push("kj_inconsistent:energy_kj");
+    delete values.energy_kj;
+  }
   let weight = TIER_WEIGHT[tier];
   if (label.dataOrigin === "crowd") weight *= CROWD_WEIGHT;
   if (check.status === "fail") {
