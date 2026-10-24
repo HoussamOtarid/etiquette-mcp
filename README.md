@@ -1,6 +1,9 @@
 # etiquette-mcp
 
 [![CI](https://github.com/HoussamOtarid/etiquette-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/HoussamOtarid/etiquette-mcp/actions/workflows/ci.yml)
+[![Live sources](https://github.com/HoussamOtarid/etiquette-mcp/actions/workflows/live.yml/badge.svg)](https://github.com/HoussamOtarid/etiquette-mcp/actions/workflows/live.yml)
+[![Version](https://img.shields.io/github/v/tag/HoussamOtarid/etiquette-mcp?sort=semver&label=version)](https://github.com/HoussamOtarid/etiquette-mcp/tags)
+[![License: MIT](https://img.shields.io/github/license/HoussamOtarid/etiquette-mcp)](LICENSE)
 
 An [MCP](https://modelcontextprotocol.io) server that looks a food product up by **barcode, name or keywords** across
 several French grocery sources, self-checks each nutrition label it finds, and returns the **best-supported label**
