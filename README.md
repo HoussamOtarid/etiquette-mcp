@@ -107,3 +107,7 @@ src/
   mcp/      tool definitions and HTTP transport
 test/       unit tests and recorded source fixtures
 ```
+
+## License
+
+MIT
