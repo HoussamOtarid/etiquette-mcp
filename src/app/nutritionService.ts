@@ -19,6 +19,7 @@ import {
   compactLabelResult,
   labelPreview,
   labelSection,
+  mergePackSizes,
   offerView,
   perSourceViews,
   priceView,
@@ -434,7 +435,14 @@ export class NutritionService {
     if (!first) return { kind: "none", advice: NO_MATCH_ADVICE };
     if (!isUnambiguous(ranked)) {
       await this.addPreviews(ranked.slice(0, MAX_RESULTS), adapters, deadline);
-      return { kind: "ambiguous", ranked };
+      const merged = mergePackSizes(ranked, this.tierOf);
+      const [best] = merged;
+      if (!best || !isUnambiguous(merged)) return { kind: "ambiguous", ranked: merged };
+      const sizes = [best, ...(best.otherSizes ?? [])].map((g) => g.sizeText ?? g.name);
+      status.notes.push(
+        `"${best.name}" is sold in several pack sizes with the same label (${sizes.join(", ")}).`,
+      );
+      return { kind: "group", group: best, ranked: merged };
     }
     status.notes.push(`Resolved the query to "${first.name}"${first.brand ? ` (${first.brand})` : ""}.`);
     return { kind: "group", group: first, ranked };

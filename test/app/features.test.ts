@@ -157,6 +157,25 @@ describe("service features", () => {
     expect(ambiguous.candidates?.map((c) => c.label_preview?.energy_kcal)).toEqual([95, 60]);
   });
 
+  it("treats pack sizes sharing a label as one product", async () => {
+    const ricotta = fake("naturalia", "C", () => [
+      offer("naturalia", "Ricotta Italiana 250g", {
+        brand: "Zanetti",
+        ean: "8002710333111",
+        label: label("naturalia", 143, 11, 2.5, 8.5),
+      }),
+      offer("naturalia", "Ricotta Italiana 1,5kg", {
+        brand: "Zanetti",
+        ean: "8002710333104",
+        label: { ...label("naturalia", 143, 11, 2.5, 8.5), basis: "100g/100ml" },
+      }),
+    ]);
+    const result = await service([ricotta]).getLabel({ product: "ricotta italiana", brand: "Zanetti" });
+    expect(result.status).toBe("found");
+    expect(result.product?.other_sizes).toEqual([{ product_ref: "ean:8002710333104", size: "1500 g" }]);
+    expect(result.notes.some((n) => n.includes("several pack sizes with the same label"))).toBe(true);
+  });
+
   it("takes per-item brands in get_labels and returns compact results by default", async () => {
     const result = await service([yogurts()]).getLabels({
       products: [{ product: "yaourt nature vache", brand: "Y" }],

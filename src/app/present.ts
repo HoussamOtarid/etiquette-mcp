@@ -1,7 +1,8 @@
 import { round } from "../domain/numbers.ts";
 import { type NutrientKey, SALT_PER_SODIUM } from "../domain/nutrients.ts";
 import { parseQuantity } from "../domain/quantity.ts";
-import type { Offer, SourceId, Tier } from "../domain/types.ts";
+import { sameBrand, tokenSimilarity } from "../domain/text.ts";
+import type { Basis, Offer, SourceId, Tier } from "../domain/types.ts";
 import type { ProductGroup } from "../engine/identity.ts";
 import type { DecidedLabel, NutrientDecision } from "../engine/types.ts";
 import type {
@@ -71,8 +72,11 @@ export function labelPreview(g: ProductGroup, tierOf: (s: SourceId) => Tier): La
   };
 }
 
+/** Other pack sizes of a product, found to carry the same label. */
+export type WithOtherSizes = ProductGroup & { otherSizes?: ProductGroup[] };
+
 export function productView(
-  g: ProductGroup,
+  g: WithOtherSizes,
   options: { tierOf?: (s: SourceId) => Tier; score?: number } = {},
 ): ProductView {
   const view: ProductView = {
@@ -88,7 +92,48 @@ export function productView(
   if (options.score !== undefined) view.score = options.score;
   const preview = options.tierOf ? labelPreview(g, options.tierOf) : undefined;
   if (preview) view.label_preview = preview;
+  if (g.otherSizes?.length)
+    view.other_sizes = g.otherSizes.map((o) => ({ product_ref: o.ref, size: o.sizeText ?? packText(o) }));
   return view;
+}
+
+function packText(g: ProductGroup): string | null {
+  const pack = packOf(g);
+  return pack ? `${pack.amount} ${pack.unit}` : null;
+}
+
+/**
+ * The same product in several pack sizes: same brand, same name apart from quantities, and identical label previews.
+ * Each such set becomes one entry (the best ranked), listing the others as `otherSizes`.
+ */
+export function mergePackSizes<T extends ProductGroup>(
+  ranked: T[],
+  tierOf: (s: SourceId) => Tier,
+): Array<T & { otherSizes?: ProductGroup[] }> {
+  const sameLabel = (a: ProductGroup, b: ProductGroup) => {
+    const pa = labelPreview(a, tierOf);
+    const pb = labelPreview(b, tierOf);
+    if (!pa || !pb || !compatibleBasis(pa.basis, pb.basis)) return false;
+    return (["energy_kcal", "protein_g", "carbohydrates_g", "fat_g"] as const).every((k) => pa[k] === pb[k]);
+  };
+  const merged: Array<T & { otherSizes?: ProductGroup[] }> = [];
+  for (const g of ranked) {
+    const home = merged.find(
+      (m) =>
+        (sameBrand(m.brand, g.brand) === true || (!m.brand && !g.brand)) &&
+        tokenSimilarity(m.name, g.name) === 1 &&
+        sameLabel(m, g),
+    );
+    if (home) home.otherSizes = [...(home.otherSizes ?? []), g];
+    else merged.push({ ...g });
+  }
+  return merged;
+}
+
+/** Labels "per 100 g or ml" fit either basis; an unknown basis fits none. */
+function compatibleBasis(a: Basis, b: Basis): boolean {
+  if (a === "unknown" || b === "unknown") return false;
+  return a === b || a === "100g/100ml" || b === "100g/100ml";
 }
 
 function nutrientView(n: NutrientDecision): NutrientView {

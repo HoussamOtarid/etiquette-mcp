@@ -27,7 +27,8 @@ A `get_label` answer contains:
 - `confidence`: overall level (`high` / `medium` / `low` / `none`), independent source count, missing nutrients,
   self-check results, flags and `flag_details` naming the source and nutrient behind each flag
 - `advice`: a short instruction for the calling model
-- `variants`: same brand, other sizes or flavours
+- `variants`: same brand, other sizes or flavours; `product.other_sizes`: other pack sizes with the same label (a
+  description matching only those is answered directly)
 - `ingredients` (with language), `allergens`, `traces`, `nutriscore`, and `offers` with prices per store
 - `sources`: the status of every source for this request (`ok`, `not_found`, `timeout`, `rate_limited`, `error`, or
   `skipped` when it was not needed or the answer came from the cache)

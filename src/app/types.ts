@@ -55,6 +55,8 @@ export interface ProductView {
   /** Stores selling it with price and link (left out in compact results, which give `stores` instead). */
   offers?: OfferView[];
   stores?: SourceId[];
+  /** The same product in other pack sizes, with the same label. */
+  other_sizes?: Array<{ product_ref: string; size: string | null }>;
 }
 
 /** Hints about how well text-search results match the query. */
