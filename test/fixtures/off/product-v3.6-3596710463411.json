@@ -1,0 +1,118 @@
+{
+ "code": "3596710463411",
+ "status": "success",
+ "product": {
+  "allergens_tags": [],
+  "brands": "Auchan",
+  "code": "3596710463411",
+  "data_sources_tags": [
+   "app-yuka",
+   "apps",
+   "producers",
+   "producer-auchan-apaw",
+   "database-agena3000",
+   "database-gdsn",
+   "databases",
+   "app-macrofactor"
+  ],
+  "ingredients_lc": "fr",
+  "ingredients_text": "100% viande bovine origine France Pourcentage de matières grasses inférieur à 5% Rapport collagène sur protéines de viande inférieur à 12%. Elaboré en France.",
+  "ingredients_text_fr": "100% viande bovine origine France Pourcentage de matières grasses inférieur à 5% Rapport collagène sur protéines de viande inférieur à 12%. Elaboré en France.",
+  "lang": "fr",
+  "last_modified_t": 1790648220,
+  "nutriscore_grade": "b",
+  "nutrition": {
+   "aggregated_set": {
+    "per": "100g",
+    "preparation": "as_sold",
+    "nutrients": {
+     "added-sugars": {
+      "value": 0,
+      "unit": "g",
+      "modifier": "~",
+      "source": "estimate"
+     },
+     "carbohydrates": {
+      "value": 0.5,
+      "unit": "g",
+      "modifier": "<",
+      "source": "manufacturer"
+     },
+     "energy": {
+      "value": 525,
+      "unit": "kJ",
+      "source": "manufacturer"
+     },
+     "energy-kcal": {
+      "value": 125,
+      "unit": "kcal",
+      "source": "manufacturer"
+     },
+     "energy-kj": {
+      "value": 525,
+      "unit": "kJ",
+      "source": "manufacturer"
+     },
+     "fat": {
+      "value": 5,
+      "unit": "g",
+      "source": "manufacturer"
+     },
+     "fiber": {
+      "value": 0.5,
+      "unit": "g",
+      "modifier": "<",
+      "source": "manufacturer"
+     },
+     "fruits-vegetables-legumes": {
+      "value": 0,
+      "unit": "%",
+      "modifier": "~",
+      "source": "estimate"
+     },
+     "fruits-vegetables-nuts": {
+      "value": 0,
+      "unit": "%",
+      "modifier": "~",
+      "source": "estimate"
+     },
+     "nova-group": {
+      "value": 1,
+      "unit": "",
+      "source": "packaging"
+     },
+     "proteins": {
+      "value": 20,
+      "unit": "g",
+      "source": "manufacturer"
+     },
+     "salt": {
+      "value": 0.22,
+      "unit": "g",
+      "source": "manufacturer"
+     },
+     "saturated-fat": {
+      "value": 2.2,
+      "unit": "g",
+      "source": "manufacturer"
+     },
+     "sodium": {
+      "value": 0.088,
+      "unit": "g",
+      "source": "manufacturer"
+     },
+     "sugars": {
+      "value": 0.5,
+      "unit": "g",
+      "modifier": "<",
+      "source": "manufacturer"
+     }
+    }
+   }
+  },
+  "product_name": "Haché de boeuf - 5% de matières grasses",
+  "product_name_fr": "Haché de boeuf - 5% de matières grasses",
+  "quantity": "0.4 kg",
+  "traces_tags": []
+ }
+}

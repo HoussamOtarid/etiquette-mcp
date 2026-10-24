@@ -127,7 +127,7 @@ export function buildMcpServer(service: NutritionService): McpServer {
       title: "Get nutrition labels for several products",
       description:
         "Batch version of get_label for up to 20 products (barcodes, product_refs or descriptions), e.g. a meal or a " +
-        "receipt. Faster and kinder to rate limits than separate calls: Open Food Facts lookups are combined. Each " +
+        "receipt. Kinder to rate limits than separate calls: Open Food Facts lookups share one paced queue. Each " +
         "item is a string or {product, brand?}. Returns one result per input, in order, compact by " +
         "default (stores instead of offers; no per-source labels, ingredients or variants).",
       inputSchema: {

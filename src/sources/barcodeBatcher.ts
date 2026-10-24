@@ -4,7 +4,7 @@ export interface BatcherOptions {
   maxBatch: number;
   maxRetries: number;
   /** How long to stop using `fetchMany` after it was throttled, when the server gives no Retry-After. */
-  manyCooldownMs: number;
+  manyCooldownMs?: number;
   baseBackoffMs: number;
   maxBackoffMs: number;
   sleep?: (ms: number) => Promise<void>;
@@ -23,7 +23,8 @@ function isThrottled(error: unknown): error is HttpError {
 
 /**
  * Coalesces barcode lookups: a single worker sends one request at a time, and every barcode requested while a request
- * is in flight joins the next one. One pending barcode uses `fetchOne`, several use `fetchMany`.
+ * is in flight joins the next one. One pending barcode uses `fetchOne`, several use `fetchMany` when the source has a
+ * multi-barcode lookup (otherwise they are fetched one by one).
  * If `fetchMany` is throttled, it cools down and barcodes are fetched one by one with `fetchOne` meanwhile.
  * Rate-limit answers to `fetchOne` (429/503) pause the worker, which also holds back every queued lookup.
  */
@@ -32,13 +33,13 @@ export class BarcodeBatcher<T> {
   private running = false;
   private manyAvailableAt = 0;
   private readonly fetchOne: (code: string) => Promise<T | null>;
-  private readonly fetchMany: (codes: string[]) => Promise<Map<string, T>>;
+  private readonly fetchMany: ((codes: string[]) => Promise<Map<string, T>>) | undefined;
   private readonly options: BatcherOptions;
   private readonly sleep: (ms: number) => Promise<void>;
 
   constructor(
     fetchOne: (code: string) => Promise<T | null>,
-    fetchMany: (codes: string[]) => Promise<Map<string, T>>,
+    fetchMany: ((codes: string[]) => Promise<Map<string, T>>) | undefined,
     options: BatcherOptions,
   ) {
     this.fetchOne = fetchOne;
@@ -89,12 +90,12 @@ export class BarcodeBatcher<T> {
     batch: string[],
   ): Promise<{ values: Map<string, T>; errors: Map<string, unknown> }> {
     const errors = new Map<string, unknown>();
-    if (batch.length > 1 && Date.now() >= this.manyAvailableAt) {
+    if (this.fetchMany && batch.length > 1 && Date.now() >= this.manyAvailableAt) {
       try {
         return { values: await this.fetchMany(batch), errors };
       } catch (error) {
         if (!isThrottled(error)) throw error;
-        this.manyAvailableAt = Date.now() + (error.retryAfterMs ?? this.options.manyCooldownMs);
+        this.manyAvailableAt = Date.now() + (error.retryAfterMs ?? this.options.manyCooldownMs ?? 0);
       }
     }
     const values = new Map<string, T>();

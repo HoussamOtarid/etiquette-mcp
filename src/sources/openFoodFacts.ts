@@ -1,7 +1,7 @@
 import { usableEan } from "../domain/ean.ts";
 import type { NutrientKey } from "../domain/nutrients.ts";
 import { brandSlug } from "../domain/text.ts";
-import type { Basis, Offer } from "../domain/types.ts";
+import type { Basis, NutrientValue, Offer, SourceLabel } from "../domain/types.ts";
 import { TTL } from "../infra/cache.ts";
 import { REPOSITORY_URL } from "../version.ts";
 import {
@@ -16,9 +16,9 @@ import {
 import { BarcodeBatcher } from "./barcodeBatcher.ts";
 import { cachedSearch, setNumber } from "./shared.ts";
 
-const PRODUCT_URL = "https://world.openfoodfacts.org/api/v2/product";
-const BATCH_URL = "https://world.openfoodfacts.org/api/v2/search";
-const MAX_BATCH = 50;
+/** API v3.6: the current version, returning the new nutrition structure (v2 is deprecated). */
+const PRODUCT_URL = "https://world.openfoodfacts.org/api/v3.6/product";
+const MAX_QUEUED_BATCH = 50;
 const SEARCH_URL = "https://search.openfoodfacts.org/search";
 const FIELDS = [
   "code",
@@ -26,6 +26,7 @@ const FIELDS = [
   "product_name_fr",
   "brands",
   "quantity",
+  "nutrition",
   "nutriments",
   "nutriscore_grade",
   "ingredients_text_fr",
@@ -55,6 +56,14 @@ interface OffProduct {
   data_sources_tags?: string[];
   last_modified_t?: number;
   lang?: string;
+  /** New nutrition structure (API v3.5+, exports): values per `aggregated_set.per`. */
+  nutrition?: {
+    aggregated_set?: {
+      per?: string;
+      preparation?: string;
+      nutrients?: Record<string, { value?: number; unit?: string; modifier?: string; source?: string }>;
+    };
+  };
 }
 
 const NUTRIMENTS: Array<[NutrientKey, string]> = [
@@ -68,6 +77,60 @@ const NUTRIMENTS: Array<[NutrientKey, string]> = [
   ["protein_g", "proteins_100g"],
   ["salt_g", "salt_100g"],
 ];
+
+/** Our nutrients and their ids in the new nutrition structure. */
+const NUTRITION: Array<[NutrientKey, string]> = [
+  ["energy_kcal", "energy-kcal"],
+  ["energy_kj", "energy-kj"],
+  ["fat_g", "fat"],
+  ["saturated_fat_g", "saturated-fat"],
+  ["carbohydrates_g", "carbohydrates"],
+  ["sugars_g", "sugars"],
+  ["fiber_g", "fiber"],
+  ["protein_g", "proteins"],
+  ["salt_g", "salt"],
+];
+
+type OffNutrient = NonNullable<
+  NonNullable<NonNullable<OffProduct["nutrition"]>["aggregated_set"]>["nutrients"]
+>[string];
+
+/** A nutrient value as printed on the pack, in grams for masses; OFF's own estimates are not label values. */
+function labelValue(n: OffNutrient | undefined): NutrientValue | null {
+  if (!n || typeof n.value !== "number" || !Number.isFinite(n.value) || n.source === "estimate") return null;
+  const value =
+    n.unit === "mg" ? n.value / 1000 : n.unit === "µg" || n.unit === "mcg" ? n.value / 1e6 : n.value;
+  if (n.modifier === "<" || n.modifier === "≤") return { value, qualifier: "lt" };
+  if (n.modifier === ">" || n.modifier === "≥") return { value, qualifier: "gt" };
+  return { value };
+}
+
+/**
+ * Reads the new nutrition structure. Returns false when the product has none (older entries, legacy responses), so
+ * the caller falls back to `nutriments`. Values prepared for consumption are not the label's as-sold values.
+ */
+function readNutrition(product: OffProduct, label: SourceLabel): boolean {
+  const set = product.nutrition?.aggregated_set;
+  if (!set?.nutrients || Object.keys(set.nutrients).length === 0) return false;
+  if (set.preparation && set.preparation !== "as_sold") return true;
+  const nutrients = set.nutrients;
+  for (const [key, id] of NUTRITION) {
+    const value = labelValue(nutrients[id]);
+    if (value) label.values[key] = value;
+  }
+  const energy = nutrients.energy;
+  if (energy?.unit === "kJ" && !label.values.energy_kj) {
+    const value = labelValue(energy);
+    if (value) label.values.energy_kj = value;
+  }
+  if (!label.values.salt_g) {
+    const sodium = labelValue(nutrients.sodium);
+    if (sodium) label.sodiumG = sodium.value;
+  }
+  // "100g" is also OFF's default when contributors don't say, so for drinks the pack volume decides.
+  label.basis = set.per === "100ml" ? "100ml" : basisFromQuantity(product.quantity);
+  return true;
+}
 
 function brandsOf(p: OffProduct): string | null {
   const b = Array.isArray(p.brands) ? p.brands[0] : p.brands?.split(",")[0];
@@ -88,12 +151,14 @@ export function parseOffProduct(product: OffProduct): Offer | null {
   if (!ean) return null;
   const url = `https://world.openfoodfacts.org/product/${ean}`;
   const label = emptyLabel("off", url);
-  const n = product.nutriments ?? {};
-  for (const [key, field] of NUTRIMENTS) setNumber(label.values, key, n[field]);
-  if (label.values.energy_kj === undefined && n.energy_unit === "kJ")
-    setNumber(label.values, "energy_kj", n.energy_100g);
-  if (label.values.salt_g === undefined && typeof n.sodium_100g === "number") label.sodiumG = n.sodium_100g;
-  label.basis = basisFromQuantity(product.quantity);
+  if (!readNutrition(product, label)) {
+    const n = product.nutriments ?? {};
+    for (const [key, field] of NUTRIMENTS) setNumber(label.values, key, n[field]);
+    if (label.values.energy_kj === undefined && n.energy_unit === "kJ")
+      setNumber(label.values, "energy_kj", n.energy_100g);
+    if (label.values.salt_g === undefined && typeof n.sodium_100g === "number") label.sodiumG = n.sodium_100g;
+    label.basis = basisFromQuantity(product.quantity);
+  }
   label.nutriscore = /^[a-e]$/i.test(product.nutriscore_grade ?? "")
     ? (product.nutriscore_grade ?? null)
     : null;
@@ -162,14 +227,9 @@ export class OpenFoodFactsAdapter implements SourceAdapter {
     this.headers = { "user-agent": `${deps.config.userAgent} (+${REPOSITORY_URL})` };
     this.batcher = new BarcodeBatcher<OffProduct>(
       (code) => this.fetchProduct(code),
-      (codes) => this.fetchProducts(codes),
-      {
-        maxBatch: MAX_BATCH,
-        maxRetries: 4,
-        baseBackoffMs: 5000,
-        maxBackoffMs: 60_000,
-        manyCooldownMs: 120_000,
-      },
+      // API v3 has no multi-barcode lookup: queued barcodes are read one by one, at the documented pace.
+      undefined,
+      { maxBatch: MAX_QUEUED_BATCH, maxRetries: 4, baseBackoffMs: 5000, maxBackoffMs: 60_000 },
     );
   }
 
@@ -202,28 +262,10 @@ export class OpenFoodFactsAdapter implements SourceAdapter {
   }
 
   private async fetchProduct(ean: string): Promise<OffProduct | null> {
-    const res = await this.deps.http.getJson<{ status?: number; product?: OffProduct }>(
+    const res = await this.deps.http.getJson<{ status?: string; product?: OffProduct }>(
       `${PRODUCT_URL}/${ean}?fields=${FIELDS}`,
-      { allowStatus: [404], retry: false, headers: this.headers },
+      { allowStatus: [400, 404], retry: false, headers: this.headers },
     );
-    return res.status === 404 || res.body.status !== 1 ? null : (res.body.product ?? null);
-  }
-
-  private async fetchProducts(eans: string[]): Promise<Map<string, OffProduct>> {
-    const params = new URLSearchParams({
-      code: eans.join(","),
-      fields: FIELDS,
-      page_size: String(eans.length),
-    });
-    const res = await this.deps.http.getJson<{ products?: OffProduct[] }>(`${BATCH_URL}?${params}`, {
-      retry: false,
-      headers: this.headers,
-    });
-    const byCode = new Map<string, OffProduct>();
-    for (const product of res.body.products ?? []) {
-      const code = usableEan(product.code);
-      if (code) byCode.set(code, product);
-    }
-    return byCode;
+    return res.status === 200 && res.body.status !== "failure" ? (res.body.product ?? null) : null;
   }
 }

@@ -59,8 +59,10 @@ All values are per 100 g or per 100 ml (`label.basis`).
 Open Food Facts, La Fourche, Kazidomi, Biocoop, La Vie Claire, Naturalia, La Belle Vie and Chronodrive. Requests are anonymous:
 fixed neutral user agent, no cookies, no accounts. Each host is rate limited, and results are cached in SQLite.
 
-Open Food Facts lookups follow its documented quotas: concurrent barcode lookups are combined into one request, and a
-tool call waits for them (up to `OFF_MAX_WAIT_MS`) instead of failing, backing off on 429/503. As its API asks, these
+Open Food Facts is read through its current API (v3.6) and new nutrition format: the basis (per 100 g or 100 ml) comes
+from the data, "<" values are kept as such, and Open Food Facts' own estimates are not counted as label values. Lookups
+follow its documented quotas (one paced queue for all barcode reads), and a tool call waits for them (up to
+`OFF_MAX_WAIT_MS`) instead of failing, backing off on 429/503. As its API asks, these
 requests identify the project with its repository URL.
 
 ## Running

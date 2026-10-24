@@ -337,29 +337,35 @@ describe("service features", () => {
 describe("get_labels batching", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("resolves several barcodes with one Open Food Facts request", async () => {
+  it("reads several barcodes once each through the v3.6 queue, in order", async () => {
     const eans = ["3760109052641", "5411788047258", "3760196070214"];
     const fetchMock = vi.fn(async (url: string) => {
       const u = new URL(url);
-      if (u.pathname.startsWith("/api/v2/product/")) {
-        await new Promise((r) => setTimeout(r, 30));
-        const code = u.pathname.split("/").pop();
-        return Response.json({
-          status: 1,
-          product: {
-            code,
-            product_name: "P",
-            nutriments: { "energy-kcal_100g": 100, fat_100g: 1, carbohydrates_100g: 20, proteins_100g: 3 },
-          },
-        });
-      }
-      const codes = (u.searchParams.get("code") ?? "").split(",");
+      const code = u.pathname.split("/").pop() ?? "";
+      if (!eans.includes(code))
+        return Response.json(
+          { code, status: "failure", errors: [{ message: { id: "product_not_found" } }] },
+          { status: 404 },
+        );
+      await new Promise((r) => setTimeout(r, 10));
       return Response.json({
-        products: codes.map((code) => ({
+        code,
+        status: "success",
+        product: {
           code,
           product_name: "P",
-          nutriments: { "energy-kcal_100g": 100, fat_100g: 1, carbohydrates_100g: 20, proteins_100g: 3 },
-        })),
+          nutrition: {
+            aggregated_set: {
+              per: "100g",
+              nutrients: {
+                "energy-kcal": { value: 100, unit: "kcal", source: "packaging" },
+                fat: { value: 1, unit: "g", source: "packaging" },
+                carbohydrates: { value: 20, unit: "g", source: "packaging" },
+                proteins: { value: 3, unit: "g", source: "packaging" },
+              },
+            },
+          },
+        },
       });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -386,7 +392,8 @@ describe("get_labels batching", () => {
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, { headers: Record<string, string> }];
     expect(init.headers["user-agent"]).toBe(`${cfg.userAgent} (+${REPOSITORY_URL})`);
     expect(result.results.slice(0, 3).every((r) => r.status === "found")).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("code=");
+    expect(result.results[3]?.status).toBe("not_found");
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock.mock.calls.every(([url]) => String(url).includes("/api/v3.6/product/"))).toBe(true);
   });
 });
