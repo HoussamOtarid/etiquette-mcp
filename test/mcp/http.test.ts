@@ -23,7 +23,6 @@ const product: Offer = {
   ean: EAN,
   sizeText: "1 kg",
   priceEur: null,
-  unitPriceText: null,
   inStock: null,
   label: {
     source: "off",

@@ -39,7 +39,6 @@ export function parseNaturaliaSuggest(items: SuggestItem[]): Offer[] {
         ean,
         sizeText: null,
         priceEur: priceOf(item.price),
-        unitPriceText: null,
         inStock: null,
       },
     ];

@@ -154,28 +154,18 @@ export function buildMcpServer(service: NutritionService): McpServer {
     {
       title: "Compare prices across stores",
       description:
-        "mode same_product (default): every store selling one product, cheapest unit price (€/kg or €/L) first, with " +
-        "the price spread. mode alternatives: products matching a description across stores (other brands and sizes " +
-        "included), each with its cheapest offer, cheapest unit price first. When a label is known, adds € per 100 kcal " +
-        "and € per 10 g protein. Prices are online list prices at lookup time.",
+        "Every store selling the exact same product (same barcode, or same brand, name and size), cheapest total " +
+        "price first, with the price spread. Prices are online list prices at lookup time.",
       inputSchema: {
         product: z.string().min(2).max(200).describe("Barcode, product_ref or description"),
         brand: z.string().max(60).optional().describe("Brand, when passing a description"),
-        mode: z.enum(["same_product", "alternatives"]).optional().describe("Default same_product"),
         sources: sourcesSchema,
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(10)
-          .optional()
-          .describe("alternatives: number of products (default 10)"),
       },
       annotations: { title: "Compare prices across stores", ...readOnly },
     },
-    async ({ product, brand, mode, sources, limit }) => {
+    async ({ product, brand, sources }) => {
       try {
-        return respond(await service.comparePrices({ product, brand, mode, sources, limit }));
+        return respond(await service.comparePrices({ product, brand, sources }));
       } catch (error) {
         return failure(error);
       }

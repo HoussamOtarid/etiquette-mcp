@@ -113,7 +113,6 @@ export function parseOffProduct(product: OffProduct): Offer | null {
     ean,
     sizeText: cleanText(product.quantity),
     priceEur: null,
-    unitPriceText: null,
     inStock: null,
     label,
   };
@@ -133,7 +132,6 @@ export function parseOffSearch(body: { hits?: OffProduct[] }): Offer[] {
         ean,
         sizeText: cleanText(hit.quantity),
         priceEur: null,
-        unitPriceText: null,
         inStock: null,
       },
     ];

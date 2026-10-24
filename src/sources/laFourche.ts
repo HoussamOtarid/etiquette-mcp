@@ -114,7 +114,6 @@ export function parseLaFourcheHit(hit: Hit): Offer | null {
     ean: eanOf(hit.barcode),
     sizeText: cleanText(hit.weight),
     priceEur: priceOf(hit.price),
-    unitPriceText: null,
     inStock: typeof hit.inventory_available === "boolean" ? hit.inventory_available : null,
     label,
   };

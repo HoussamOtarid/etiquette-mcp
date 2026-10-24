@@ -86,7 +86,6 @@ export function parseKazidomiProduct(p: KazidomiProduct): Offer | null {
     ean: eanOf(p.eanPrimary),
     sizeText: size,
     priceEur: priceOf(p.prices?.prices?.[applied]?.priceInclude ?? p.prices?.prices?.standard?.priceInclude),
-    unitPriceText: null,
     inStock: typeof p.isAvailable === "boolean" ? p.isAvailable : null,
     label,
   };

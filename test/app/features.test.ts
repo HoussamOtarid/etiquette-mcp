@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { compareWithLabel } from "../../src/app/compare.ts";
 import { NutritionService } from "../../src/app/nutritionService.ts";
 import { displayValue, readyToApply } from "../../src/app/present.ts";
-import { rankByUnitPrice, spreadOf, unitPriceOf, valueForMoney } from "../../src/app/prices.ts";
+import { rankByPrice, spreadOf } from "../../src/app/prices.ts";
 import { loadConfig } from "../../src/config.ts";
 import type { Offer, SourceId, SourceLabel, Tier } from "../../src/domain/types.ts";
 import { decideLabel } from "../../src/engine/decide.ts";
@@ -45,7 +45,6 @@ function offer(source: SourceId, name: string, extra: Partial<Offer> = {}): Offe
     ean: null,
     sizeText: null,
     priceEur: null,
-    unitPriceText: null,
     inStock: true,
     ...extra,
   };
@@ -100,34 +99,16 @@ describe("compare_to", () => {
 });
 
 describe("prices", () => {
-  it("normalises unit prices from the shop text or the pack size", () => {
-    expect(
-      unitPriceOf(offer("labellevie", "Yaourts", { priceEur: 1.05, unitPriceText: "2,10€ le kg" })),
-    ).toEqual({ value: 2.1, unit: "kg" });
-    expect(unitPriceOf(offer("lafourche", "Boisson avoine", { priceEur: 1.39, sizeText: "1 L" }))).toEqual({
-      value: 1.39,
-      unit: "l",
-    });
-    expect(unitPriceOf(offer("naturalia", "Yaourt nature 4x125g", { priceEur: 2.5 }))).toEqual({
-      value: 5,
-      unit: "kg",
-    });
-    expect(unitPriceOf(offer("biocoop", "Sans taille", { priceEur: 3 }))).toBeNull();
-  });
-
-  it("ranks by unit price and computes the spread and value for money", () => {
-    const ranked = rankByUnitPrice([
+  it("ranks offers by total price and computes the spread", () => {
+    const ranked = rankByPrice([
       offer("naturalia", "Lait 1L", { priceEur: 2.99 }),
       offer("lafourche", "Lait 1L", { priceEur: 1.8 }),
       offer("off", "Lait", { priceEur: null }),
       offer("biocoop", "Lait", { priceEur: 2.2 }),
     ]);
-    expect(ranked.map((r) => r.offer.source)).toEqual(["lafourche", "naturalia", "biocoop"]);
+    expect(ranked.map((o) => o.source)).toEqual(["lafourche", "biocoop", "naturalia"]);
     expect(spreadOf(ranked)).toEqual({ cheapest: 1.8, most_expensive: 2.99, savings_pct: 39.8 });
-    expect(valueForMoney({ value: 10, unit: "kg" }, { energy_kcal: 400, protein_g: 20 })).toEqual({
-      eur_per_100_kcal: 0.25,
-      eur_per_10g_protein: 0.5,
-    });
+    expect(spreadOf(ranked.slice(0, 1))).toBeNull();
   });
 });
 
@@ -229,7 +210,7 @@ describe("service features", () => {
     expect(result.confidence?.flags).not.toContain("copied_label_collapsed");
   });
 
-  it("compares prices for one product and across alternatives", async () => {
+  it("compares total prices of the same product across stores", async () => {
     const ean = "3760324840986";
     const shops = [
       fake("lafourche", "A", () => [
@@ -248,15 +229,12 @@ describe("service features", () => {
     const svc = service(shops);
     const same = await svc.comparePrices({ product: "boisson avoine 1L", brand: "X" });
     expect(same.status).toBe("found");
-    expect(same.offers?.map((o) => [o.source, o.unit_price_eur])).toEqual([
+    expect(same.offers?.map((o) => [o.source, o.price_eur])).toEqual([
       ["lafourche", 1.39],
       ["naturalia", 1.99],
     ]);
     expect(same.spread?.savings_pct).toBe(30.2);
-    expect(same.cheapest?.value_for_money?.eur_per_100_kcal).toBeCloseTo(0.323, 2);
-
-    const alternatives = await svc.comparePrices({ product: "boisson avoine", mode: "alternatives" });
-    expect(alternatives.alternatives?.[0]?.best).toMatchObject({ source: "naturalia", unit_price_eur: 1.2 });
+    expect(same.cheapest?.source).toBe("lafourche");
   });
 });
 

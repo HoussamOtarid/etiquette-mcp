@@ -14,7 +14,6 @@ function offer(source: SourceId, name: string, extra: Partial<Offer> = {}): Offe
     ean: null,
     sizeText: null,
     priceEur: null,
-    unitPriceText: null,
     inStock: null,
     ...extra,
   };

@@ -55,7 +55,6 @@ export function parseLaVieClaireSearch(products: StoreProduct[]): Offer[] {
         ean: null,
         sizeText: null,
         priceEur: priceOf(price),
-        unitPriceText: null,
         inStock: typeof p.is_in_stock === "boolean" ? p.is_in_stock : null,
       },
     ];

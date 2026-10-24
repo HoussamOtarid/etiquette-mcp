@@ -10,16 +10,8 @@ import type { HealthTracker } from "../infra/health.ts";
 import type { Logger } from "../infra/logger.ts";
 import type { SourceAdapter } from "../sources/adapter.ts";
 import { compareWithLabel, type ExpectedValues } from "./compare.ts";
-import {
-  labelPreview,
-  labelSection,
-  offerView,
-  perSourceViews,
-  priceView,
-  productView,
-  readyToApply,
-} from "./present.ts";
-import { rankByUnitPrice, spreadOf } from "./prices.ts";
+import { labelSection, offerView, perSourceViews, priceView, productView, readyToApply } from "./present.ts";
+import { rankByPrice, spreadOf } from "./prices.ts";
 import { callSource, mergeStatus } from "./sourceCall.ts";
 import type {
   ComparePricesResult,
@@ -55,9 +47,7 @@ export interface GetLabelsInput {
 export interface ComparePricesInput {
   product: string;
   brand?: string;
-  mode?: "same_product" | "alternatives";
   sources?: SourceId[];
-  limit?: number;
 }
 
 type RankedGroup = ProductGroup & { score: number };
@@ -111,15 +101,14 @@ const VARIANT_SIMILARITY = 0.4;
 const MIN_RELEVANCE = 0.2;
 const MIN_NULL_BRAND_RELEVANCE = 0.5;
 const WEAK_SHOP_MATCH = 0.4;
-const MAX_ALTERNATIVES = 10;
 const BATCH_CONCURRENCY = 3;
-const ALTERNATIVE_QUERY_WORDS = 4;
 const AMBIGUOUS_ADVICE =
   "Several products match. Ask the user which one, then call get_label with its product_ref.";
 const EXPIRED_ADVICE = "This product reference has expired. Search again with find_product.";
 const UNKNOWN_BARCODE_ADVICE = "No source knows this barcode. Ask the user for the label on the pack.";
 const NO_MATCH_ADVICE = "No product matches this query in any source.";
-const PRICE_NOTE = "Online list prices at lookup time; they can differ by shop, delivery zone or promotion.";
+const PRICE_NOTE =
+  "Total online list prices for the same product at lookup time; they can differ by shop, delivery zone or promotion.";
 
 /**
  * With a brand given, other brands are dropped when products of that brand were found (products without a brand stay
@@ -320,33 +309,7 @@ export class NutritionService {
     const deadline = Date.now() + this.deps.config.requestBudgetMs;
     const status: Statuses = { sources: {}, notes: [PRICE_NOTE] };
     const adapters = this.selected(input.sources);
-    const mode = input.mode ?? "same_product";
-    const base = { mode, sources: status.sources, notes: status.notes } as const;
-
-    if (mode === "alternatives") {
-      const query =
-        looksLikeBarcode(input.product) ||
-        input.product.startsWith("ean:") ||
-        input.product.startsWith("grp:")
-          ? await this.describe(input.product, adapters, deadline, status)
-          : input.product;
-      if (!query) return { ...base, ...this.priceMiss(status), product: null };
-      const ranked = await this.rankedForText({ query, brand: input.brand }, adapters, deadline, status);
-      const alternatives = ranked
-        .slice(0, Math.min(input.limit ?? MAX_ALTERNATIVES, MAX_ALTERNATIVES))
-        .map((g) => {
-          const preview = labelPreview(g, this.tierOf);
-          const best = rankByUnitPrice(g.offers, g.sizeText)[0];
-          return { product: this.view(g), best: best ? priceView(best, preview) : null };
-        });
-      alternatives.sort(
-        (a, b) =>
-          (a.best?.unit_price_eur ?? Number.POSITIVE_INFINITY) -
-          (b.best?.unit_price_eur ?? Number.POSITIVE_INFINITY),
-      );
-      if (alternatives.length === 0) return { ...base, ...this.priceMiss(status), product: null };
-      return { ...base, status: "found", product: null, alternatives };
-    }
+    const base = { sources: status.sources, notes: status.notes } as const;
 
     const resolution = await this.resolve(input.product, input.brand, adapters, deadline, status);
     if (resolution.kind === "none") return { ...base, ...this.priceMiss(status), product: null };
@@ -359,9 +322,8 @@ export class NutritionService {
       };
     }
     const { group } = resolution;
-    const preview = labelPreview(group, this.tierOf);
-    const offers = rankByUnitPrice(group.offers, group.sizeText);
-    const views = offers.map((o) => priceView(o, preview));
+    const offers = rankByPrice(group.offers);
+    const views = offers.map(priceView);
     if (views.length === 0) status.notes.push("No store lists a price for this product.");
     return {
       ...base,
@@ -406,18 +368,6 @@ export class NutritionService {
     if (!isUnambiguous(ranked)) return { kind: "ambiguous", ranked };
     status.notes.push(`Resolved the query to "${first.name}"${first.brand ? ` (${first.brand})` : ""}.`);
     return { kind: "group", group: first, ranked };
-  }
-
-  /** Name + brand of a product given by reference or barcode, to search for alternatives. */
-  private async describe(
-    product: string,
-    adapters: SourceAdapter[],
-    deadline: number,
-    status: Statuses,
-  ): Promise<string | null> {
-    const resolution = await this.resolve(product, undefined, adapters, deadline, status);
-    if (resolution.kind !== "group") return null;
-    return nameTokens(resolution.group.name).slice(0, ALTERNATIVE_QUERY_WORDS).join(" ") || null;
   }
 
   private async rankedForText(

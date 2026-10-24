@@ -21,7 +21,6 @@ interface Alternate {
   price?: number;
   stock_quantity?: number;
   unlimited_stocks?: boolean;
-  label_unit_notation_item?: { formatted_weight_price?: string };
 }
 
 interface Hit {
@@ -69,7 +68,6 @@ export function parseLaBelleVieSearch(
         ean: eanOf(hit.barcode),
         sizeText: size ?? cleanText(hit.pack_unit_notation),
         priceEur: priceOf(alt?.price),
-        unitPriceText: cleanText(alt?.label_unit_notation_item?.formatted_weight_price),
         inStock: stock,
       },
     ];

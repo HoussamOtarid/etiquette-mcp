@@ -120,7 +120,6 @@ describe("La Belle Vie", () => {
       priceEur: expect.any(Number),
       url: expect.stringMatching(/\/produit\/\d+$/),
     });
-    expect(offers[0]?.unitPriceText).toMatch(/kg/);
   });
 
   it("parses each label layout", () => {

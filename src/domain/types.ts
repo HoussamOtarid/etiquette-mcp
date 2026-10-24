@@ -79,7 +79,6 @@ export interface Offer {
   ean: string | null;
   sizeText: string | null;
   priceEur: number | null;
-  unitPriceText: string | null;
   inStock: boolean | null;
   /** Some sources return the label inside search results (La Fourche, Open Food Facts). */
   label?: SourceLabel;

@@ -4,8 +4,6 @@ import { parseQuantity } from "../domain/quantity.ts";
 import type { Offer, SourceId, Tier } from "../domain/types.ts";
 import type { ProductGroup } from "../engine/identity.ts";
 import type { DecidedLabel, NutrientDecision } from "../engine/types.ts";
-import type { PricedOffer } from "./prices.ts";
-import { valueForMoney } from "./prices.ts";
 import type {
   FlatValues,
   GetLabelResult,
@@ -40,7 +38,6 @@ export function offerView(o: Offer): OfferView {
     brand: o.brand,
     url: o.url,
     price_eur: o.priceEur,
-    unit_price: o.unitPriceText,
     in_stock: o.inStock,
   };
 }
@@ -190,17 +187,13 @@ export function perSourceViews(d: DecidedLabel): PerSourceView[] {
   }));
 }
 
-export function priceView(priced: PricedOffer, preview: LabelPreview | undefined): PriceView {
-  const { offer, unitPrice } = priced;
+export function priceView(offer: Offer): PriceView {
   return {
     source: offer.source,
     name: offer.name,
     brand: offer.brand,
     url: offer.url,
     price_eur: offer.priceEur ?? 0,
-    unit_price_eur: unitPrice?.value ?? null,
-    unit: unitPrice?.unit ?? null,
     in_stock: offer.inStock,
-    value_for_money: unitPrice && preview ? valueForMoney(unitPrice, preview) : null,
   };
 }

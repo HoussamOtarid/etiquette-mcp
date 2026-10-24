@@ -15,7 +15,6 @@ export interface OfferView {
   brand: string | null;
   url: string | null;
   price_eur: number | null;
-  unit_price: string | null;
   in_stock: boolean | null;
 }
 
@@ -144,28 +143,17 @@ export interface PriceView {
   brand: string | null;
   url: string | null;
   price_eur: number;
-  unit_price_eur: number | null;
-  unit: "kg" | "l" | null;
   in_stock: boolean | null;
-  value_for_money: { eur_per_100_kcal: number | null; eur_per_10g_protein: number | null } | null;
-}
-
-export interface AlternativeView {
-  product: ProductView;
-  best: PriceView | null;
 }
 
 export interface ComparePricesResult {
   status: "found" | "ambiguous" | "not_found" | "incomplete";
-  mode: "same_product" | "alternatives";
   retry_after_s?: number;
   product: ProductView | null;
-  /** same_product: every store selling the product, cheapest unit price first. */
+  /** Every store selling the product, cheapest total price first. */
   offers?: PriceView[];
   cheapest?: PriceView | null;
   spread?: { cheapest: number; most_expensive: number; savings_pct: number } | null;
-  /** alternatives: matching products across stores, each with its cheapest offer, cheapest unit price first. */
-  alternatives?: AlternativeView[];
   candidates?: ProductView[];
   sources: Partial<Record<SourceId, SourceStatus>>;
   notes: string[];

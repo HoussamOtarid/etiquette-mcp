@@ -11,7 +11,7 @@ together with how strongly the sources agree, per-store prices and the raw label
 | `find_product`   | Search by barcode, name or keywords (optional brand and size). Up to 5 products grouped across stores, with a match score, a macro preview and store offers. |
 | `get_label`      | Best nutrition label for one product, from a barcode, a `product_ref` or a description (returns candidates when ambiguous).                                  |
 | `get_labels`     | `get_label` for up to 20 products in one call (a meal, a receipt); Open Food Facts lookups are combined.                                                     |
-| `compare_prices` | Prices for one product across stores by unit price (€/kg, €/L), or the cheapest alternatives for a description, with € per 100 kcal and per 10 g protein.    |
+| `compare_prices` | The exact same product across stores, cheapest total price first, with the price spread.                                                                     |
 | `list_sources`   | Sources, their capabilities and recent health.                                                                                                               |
 
 Every lookup tool accepts `sources` to restrict the stores used (default: all).

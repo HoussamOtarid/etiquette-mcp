@@ -54,7 +54,6 @@ export function parseBiocoopSuggest(items: SuggestItem[]): Offer[] {
         ean: eanOf(item.ean),
         sizeText: cleanText(item.mesure?.replace(/&nbsp;/g, " ")),
         priceEur: priceOf(item.price),
-        unitPriceText: null,
         inStock: typeof item.stock?.is_in_stock === "boolean" ? item.stock.is_in_stock : null,
       },
     ];
