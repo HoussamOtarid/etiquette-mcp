@@ -1,10 +1,7 @@
-import * as cheerio from "cheerio";
 import { unflatten } from "devalue";
 import { usableEan } from "../domain/ean.ts";
-import { parseNumber } from "../domain/numbers.ts";
 import type { NutrientKey } from "../domain/nutrients.ts";
-import type { Basis, Offer } from "../domain/types.ts";
-import { TTL } from "../infra/cache.ts";
+import type { Basis, Offer, SourceLabel } from "../domain/types.ts";
 import {
   type AdapterDeps,
   cleanText,
@@ -17,13 +14,6 @@ import {
 import { cachedSearch, matchingEan, priceOf, setNumber } from "./shared.ts";
 
 const SITE = "https://www.chronodrive.com";
-/**
- * Product pages are sometimes rendered without their details (about one request in five, sometimes several in a
- * row); a later request usually gets the full page.
- */
-const PAGE_ATTEMPTS = 4;
-const RETRY_PAUSE_MS = 3000;
-const HTML = { accept: "text/html,application/xhtml+xml" };
 
 interface ListedProduct {
   id?: string;
@@ -31,6 +21,7 @@ interface ListedProduct {
   labels?: { productLabel?: string; brandLabel?: string; unitQuantityLabel?: string };
   prices?: { defaultPrice?: number };
   stock?: string;
+  characteristics?: { features?: Array<{ code?: string; value?: unknown }> };
 }
 
 /** Nuxt wraps some payload values in its own types; their content is plain data. */
@@ -45,15 +36,24 @@ const NUXT_TYPES = [
 ];
 const REVIVERS = Object.fromEntries(NUXT_TYPES.map((type) => [type, (value: unknown) => value]));
 
-const LABELS: Array<[RegExp, NutrientKey]> = [
-  [/satur/i, "saturated_fat_g"],
-  [/^mati[eè]res grasses/i, "fat_g"],
-  [/sucres/i, "sugars_g"],
-  [/^glucides/i, "carbohydrates_g"],
-  [/fibres/i, "fiber_g"],
-  [/^prot[ée]ines/i, "protein_g"],
-  [/^sel\b/i, "salt_g"],
-];
+/**
+ * Product characteristics carrying the label, by code (checked against the product pages: values per 100 g/ml as
+ * printed, energy in kJ and kcal, masses in grams).
+ */
+const NUTRIENT_FEATURES: Record<string, NutrientKey> = {
+  "157": "energy_kj",
+  "243": "energy_kcal",
+  "159": "fat_g",
+  "160": "saturated_fat_g",
+  "163": "carbohydrates_g",
+  "164": "sugars_g",
+  "167": "fiber_g",
+  "168": "protein_g",
+  "169": "salt_g",
+};
+const BASIS_FEATURE = "563";
+const ALLERGENS_FEATURE = "383";
+const NUTRISCORE_FEATURE = "520";
 
 /** All barcodes of a listed product; some entries hold several, separated by spaces. */
 function barcodesOf(product: ListedProduct): string[] {
@@ -61,7 +61,45 @@ function barcodesOf(product: ListedProduct): string[] {
   return [...new Set(codes.filter((e): e is string => e !== null))];
 }
 
-/** Search results live in the page's Nuxt payload; product links are in the rendered cards. */
+/** "100 g", "100ml" or "100.000 GR"; anything else (the field sometimes holds other text) gives null. */
+function basisOf(text: string | undefined): Basis | null {
+  const m = /^100(?:[.,]0+)?\s*(g|gr|ml)$/i.exec(text?.trim() ?? "");
+  if (!m) return null;
+  return m[1]?.toLowerCase() === "ml" ? "100ml" : "100g";
+}
+
+/** "Contient : Lait. Peut contenir : Soja" or "Présence : LAIT" → allergens and traces. */
+function allergensOf(text: string | undefined): { allergens: string | null; traces: string | null } {
+  const value = text ?? "";
+  const traces = /peut contenir\s*:\s*(.*)$/i.exec(value)?.[1];
+  const present = /(?:contient|pr[ée]sence)\s*:\s*(.*?)(?:\.?\s*peut contenir\s*:.*)?$/i.exec(value)?.[1];
+  const tidy = (s: string | undefined) => cleanText(s?.replace(/\.\s*$/, ""));
+  return { allergens: tidy(present), traces: tidy(traces) };
+}
+
+/** The label carried by a listed product's characteristics, or undefined when it has no nutrition values. */
+function labelOf(product: ListedProduct, url: string, sizeText: string | null): SourceLabel | undefined {
+  const features = new Map<string, string>();
+  for (const f of product.characteristics?.features ?? [])
+    if (f.code && typeof f.value === "string") features.set(f.code, f.value);
+  const label = emptyLabel("chronodrive", url);
+  for (const [code, key] of Object.entries(NUTRIENT_FEATURES))
+    setNumber(label.values, key, features.get(code));
+  if (Object.keys(label.values).length === 0) return undefined;
+  label.basis =
+    basisOf(features.get(BASIS_FEATURE)) ?? (/\d\s*(?:ml|cl|l)\b/i.test(sizeText ?? "") ? "100ml" : "100g");
+  label.raw = Object.entries(NUTRIENT_FEATURES)
+    .filter(([code]) => features.has(code))
+    .map(([code, key]) => `${key}: ${features.get(code)}`)
+    .join("; ");
+  Object.assign(label, allergensOf(features.get(ALLERGENS_FEATURE)));
+  const grade = features.get(NUTRISCORE_FEATURE)?.trim().toUpperCase();
+  label.nutriscore = grade && /^[A-E]$/.test(grade) ? grade : null;
+  label.dataOrigin = "store";
+  return finalizeLabel(label);
+}
+
+/** Search results, with their labels, live in the page's Nuxt payload; product links are in the rendered cards. */
 export function parseChronodriveSearch(html: string, wantedEan?: string): Offer[] {
   const raw = /<script[^>]*id="__NUXT_DATA__"[^>]*>([\s\S]*?)<\/script>/.exec(html)?.[1];
   if (!raw) throw new Error("chronodrive: search payload not found");
@@ -80,95 +118,29 @@ export function parseChronodriveSearch(html: string, wantedEan?: string): Offer[
     seen.add(product.id);
     const barcodes = barcodesOf(product);
     const ean = wantedEan && barcodes.includes(wantedEan) ? wantedEan : (barcodes[0] ?? null);
+    const url = `${SITE}${links.get(product.id) ?? `/produit-P${product.id}`}`;
+    const sizeText = cleanText(product.labels?.unitQuantityLabel);
+    const label = labelOf(product, url, sizeText);
     return [
       {
         source: "chronodrive" as const,
         sourceProductId: product.id,
-        url: `${SITE}${links.get(product.id) ?? `/produit-P${product.id}`}`,
+        url,
         name,
         brand: cleanText(product.labels?.brandLabel),
         ean,
-        sizeText: cleanText(product.labels?.unitQuantityLabel),
+        sizeText,
         priceEur: priceOf(product.prices?.defaultPrice),
         inStock: product.stock ? !/out|no_stock|unavailable/i.test(product.stock) : null,
+        ...(label ? { label } : {}),
       },
     ];
   });
 }
 
-/** The full product page carries a JSON-LD Product; the incomplete rendering has neither it nor the label. */
-export function hasProductDetails(html: string): boolean {
-  return /"@type"\s*:\s*"Product"/.test(html);
-}
-
-/** Headings read "pour 100 g", "pour 100 g|ml" or "pour 100.000 gr". */
-function basisOf(text: string): Basis {
-  const heading = text.replace(/100[.,]0+/g, "100");
-  if (/100\s*g\s*(\||\/)\s*(100\s*)?ml/i.test(heading)) return "100g/100ml";
-  if (/100\s*ml/i.test(heading)) return "100ml";
-  if (/100\s*g/i.test(heading)) return "100g";
-  return "unknown";
-}
-
-/** Product page: a nutrition table (label rows followed by value rows), ingredients, allergens and JSON-LD. */
-export function parseChronodriveProduct(html: string, url: string) {
-  const $ = cheerio.load(html);
-  const label = emptyLabel("chronodrive", url);
-  const section = $("#edito-section-ingredients");
-  const table = section
-    .find("table")
-    .filter((_, t) => /valeurs nutritionnelles/i.test($(t).find("thead").text()))
-    .first();
-  label.basis = basisOf(cleanText(table.find("thead th").first().text()) ?? "");
-
-  const rawLines: string[] = [];
-  let name: string | null = null;
-  table.find("tbody tr").each((_, tr) => {
-    const cell = $(tr).find("td").first();
-    if (cell.hasClass("-label")) {
-      name = cleanText(cell.text());
-      return;
-    }
-    const value = cleanText(cell.text());
-    if (!name || !value) return;
-    rawLines.push(`${name}: ${value}`);
-    const bare = name.replace(/\s+dont$/i, "");
-    if (/^[ée]nergie|valeur [ée]nerg[ée]tique/i.test(bare)) {
-      setNumber(label.values, "energy_kj", /([\d.,]+)\s*kj/i.exec(value)?.[1]);
-      setNumber(label.values, "energy_kcal", /([\d.,]+)\s*kcal/i.exec(value)?.[1]);
-    } else {
-      const key = LABELS.find(([re]) => re.test(bare))?.[1];
-      if (key && label.values[key] === undefined) setNumber(label.values, key, value);
-      else if (!key) {
-        const unit = /[\d.,]\s*([a-zµ%]+)\s*$/i.exec(value)?.[1] ?? null;
-        label.extra.push({ name: bare, value: parseNumber(value), unit, raw: `${name}: ${value}` });
-      }
-    }
-    name = null;
-  });
-  label.raw = rawLines.length ? rawLines.join("; ") : null;
-
-  section.find(".product-edito").each((_, block) => {
-    if (/^ingr[ée]dients$/i.test(cleanText($(block).find(".product-edito-title").first().text()) ?? ""))
-      label.ingredients = cleanText($(block).find(".product-edito-main").first().text());
-  });
-  $("#edito-section-allergen p").each((_, p) => {
-    const text = cleanText($(p).text()) ?? "";
-    const present = /^pr[ée]sence\s*:\s*(.+)$/i.exec(text)?.[1];
-    const traces = /^(?:traces|peut contenir)[^:]*:\s*(.+)$/i.exec(text)?.[1];
-    if (present) label.allergens = cleanText(present);
-    if (traces) label.traces = cleanText(traces);
-  });
-  label.nutriscore =
-    /niveau\s*([A-E])\b/i.exec($(".badge-nutriscore").first().text())?.[1]?.toUpperCase() ?? null;
-  label.dataOrigin = "store";
-  const ean = usableEan(/"gtin13"\s*:\s*"(\d{8,14})"/.exec(html)?.[1]);
-  return { label: finalizeLabel(label), ean };
-}
-
 /**
- * Chronodrive: Auchan group's drive, with Auchan's own brand and mainstream supermarket brands. Search (by text or
- * barcode) comes from the results page's data; labels from product pages.
+ * Chronodrive: Auchan group's drive, with Auchan's own brand and mainstream supermarket brands. A search (by text or
+ * barcode) returns the products with their labels in one request.
  */
 export class ChronodriveAdapter implements SourceAdapter {
   readonly id = "chronodrive" as const;
@@ -186,27 +158,15 @@ export class ChronodriveAdapter implements SourceAdapter {
     const q = query.ean ?? query.text;
     if (!q) return [];
     const offers = await cachedSearch(this.deps, this.id, query, async () => {
-      const res = await this.deps.http.getText(`${SITE}/search/${encodeURIComponent(q)}`, { headers: HTML });
+      const res = await this.deps.http.getText(`${SITE}/search/${encodeURIComponent(q)}`, {
+        headers: { accept: "text/html,application/xhtml+xml" },
+      });
       return parseChronodriveSearch(res.body, query.ean).slice(0, query.limit);
     });
     return matchingEan(offers, query.ean);
   }
 
   async getLabel(offer: Offer): Promise<LabelResult> {
-    if (!offer.url) return { label: null };
-    const url = offer.url;
-    const { value } = await this.deps.cache.wrap<LabelResult>("label:chronodrive", url, TTL.label, async () =>
-      parseChronodriveProduct(await this.productPage(url), url),
-    );
-    return value ?? { label: null };
-  }
-
-  private async productPage(url: string): Promise<string> {
-    for (let attempt = 1; attempt <= PAGE_ATTEMPTS; attempt++) {
-      if (attempt > 1) await new Promise((resolve) => setTimeout(resolve, RETRY_PAUSE_MS * (attempt - 1)));
-      const res = await this.deps.http.getText(url, { headers: HTML });
-      if (hasProductDetails(res.body)) return res.body;
-    }
-    throw new Error("chronodrive: product page rendered without its details");
+    return { label: offer.label ?? null };
   }
 }
