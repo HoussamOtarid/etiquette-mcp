@@ -69,6 +69,13 @@ describe("text", () => {
     ]);
   });
 
+  it("matches across plurals, gender, accents, word order and small typos", () => {
+    expect(tokenSimilarity("Spaghetti complets", "spaghettis complètes")).toBe(1);
+    expect(tokenSimilarity("Céréales muesli", "muesli cereales")).toBe(1);
+    expect(tokenSimilarity("musli croustillant", "Muesli croustillant")).toBe(1);
+    expect(tokenSimilarity("Spaghetti complets", "Spaghetti demi complètes")).toBeGreaterThan(0.6);
+  });
+
   it("scores name similarity", () => {
     expect(tokenSimilarity("Tomme 3 laits 130g Bio", "Tomme 3 Laits 130g Bio")).toBe(1);
     expect(tokenSimilarity("Compote de fraises", "Compote abricot")).toBeLessThan(0.5);

@@ -17,6 +17,7 @@ const EnvSchema = z.object({
   DATA_DIR: z.string().default("./data"),
   SOURCE_TIMEOUT_MS: z.coerce.number().int().positive().default(8000),
   REQUEST_BUDGET_MS: z.coerce.number().int().positive().default(20000),
+  OFF_MAX_WAIT_MS: z.coerce.number().int().positive().default(120000),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
   LBV_ALTERNATE: z.string().default("1-9"),
   DISABLED_SOURCES: csv,
@@ -29,6 +30,8 @@ export interface Config {
   dataDir: string;
   sourceTimeoutMs: number;
   requestBudgetMs: number;
+  /** How long a tool call may wait for queued Open Food Facts lookups. */
+  offMaxWaitMs: number;
   logLevel: "debug" | "info" | "warn" | "error";
   labelleVieAlternate: string;
   disabledSources: SourceId[];
@@ -51,6 +54,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     dataDir: e.DATA_DIR,
     sourceTimeoutMs: e.SOURCE_TIMEOUT_MS,
     requestBudgetMs: e.REQUEST_BUDGET_MS,
+    offMaxWaitMs: e.OFF_MAX_WAIT_MS,
     logLevel: e.LOG_LEVEL,
     labelleVieAlternate: e.LBV_ALTERNATE,
     disabledSources: e.DISABLED_SOURCES as SourceId[],

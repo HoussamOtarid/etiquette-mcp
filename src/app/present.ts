@@ -1,8 +1,37 @@
-import type { NutrientKey } from "../domain/nutrients.ts";
-import type { Offer } from "../domain/types.ts";
+import { round } from "../domain/numbers.ts";
+import { type NutrientKey, SALT_PER_SODIUM } from "../domain/nutrients.ts";
+import { parseQuantity } from "../domain/quantity.ts";
+import type { Offer, SourceId, Tier } from "../domain/types.ts";
 import type { ProductGroup } from "../engine/identity.ts";
 import type { DecidedLabel, NutrientDecision } from "../engine/types.ts";
-import type { GetLabelResult, NutrientView, OfferView, PerSourceView, ProductView } from "./types.ts";
+import type { PricedOffer } from "./prices.ts";
+import { valueForMoney } from "./prices.ts";
+import type {
+  FlatValues,
+  GetLabelResult,
+  LabelPreview,
+  NutrientView,
+  OfferView,
+  PackSize,
+  PerSourceView,
+  PriceView,
+  ProductView,
+  ReadyToApply,
+} from "./types.ts";
+
+const TIER_RANK: Record<Tier, number> = { A: 0, B: 1, C: 2 };
+
+/** Values as labels print them: energy to the unit, masses to two decimals. */
+export function displayValue(key: NutrientKey | "sodium_g", value: number): number {
+  return round(value, key.startsWith("energy") ? 0 : key === "sodium_g" ? 3 : 2);
+}
+
+function displayValues(values: Partial<Record<NutrientKey, number>>): Partial<Record<NutrientKey, number>> {
+  const out: Partial<Record<NutrientKey, number>> = {};
+  for (const [key, value] of Object.entries(values) as Array<[NutrientKey, number]>)
+    out[key] = displayValue(key, value);
+  return out;
+}
 
 export function offerView(o: Offer): OfferView {
   return {
@@ -16,29 +45,67 @@ export function offerView(o: Offer): OfferView {
   };
 }
 
-export function productView(g: ProductGroup): ProductView {
+export function packOf(g: Pick<ProductGroup, "sizeText" | "name" | "offers">): PackSize | null {
+  const texts = [g.sizeText, ...g.offers.map((o) => o.sizeText), g.name, ...g.offers.map((o) => o.name)];
+  for (const text of texts) {
+    const q = parseQuantity(text);
+    if (q) return { amount: q.amount, unit: q.unit };
+  }
+  return null;
+}
+
+export function labelPreview(g: ProductGroup, tierOf: (s: SourceId) => Tier): LabelPreview | undefined {
+  const withLabel = g.offers
+    .filter((o) => o.label && Object.keys(o.label.values).length > 0)
+    .sort((a, b) => TIER_RANK[tierOf(a.source)] - TIER_RANK[tierOf(b.source)]);
+  const label = withLabel[0]?.label;
+  if (!label) return undefined;
+  const v = (key: NutrientKey) => {
+    const value = label.values[key]?.value;
+    return value === undefined ? null : displayValue(key, value);
+  };
   return {
+    source: label.source,
+    basis: label.basis,
+    energy_kcal: v("energy_kcal"),
+    protein_g: v("protein_g"),
+    carbohydrates_g: v("carbohydrates_g"),
+    fat_g: v("fat_g"),
+  };
+}
+
+export function productView(
+  g: ProductGroup,
+  options: { tierOf?: (s: SourceId) => Tier; score?: number } = {},
+): ProductView {
+  const view: ProductView = {
     product_ref: g.ref,
     ean: g.ean,
     name: g.name,
     brand: g.brand,
     size: g.sizeText,
+    pack: packOf(g),
     match: g.match,
     offers: g.offers.map(offerView),
   };
+  if (options.score !== undefined) view.score = options.score;
+  const preview = options.tierOf ? labelPreview(g, options.tierOf) : undefined;
+  if (preview) view.label_preview = preview;
+  return view;
 }
 
 function nutrientView(n: NutrientDecision): NutrientView {
   const view: NutrientView = {
-    value: n.value,
+    value: n.value === null ? null : displayValue(n.key, n.value),
     agreement: n.agreement,
     sources_agree: n.sourcesAgree,
     sources_total: n.sourcesTotal,
     supporting: n.supporting,
   };
   if (n.qualifier) view.qualifier = n.qualifier;
-  if (n.dissent.length > 0) view.dissent = n.dissent.map(({ source, value }) => ({ source, value }));
-  if (n.bestGuess !== undefined) view.best_guess = n.bestGuess;
+  if (n.dissent.length > 0)
+    view.dissent = n.dissent.map(({ source, value }) => ({ source, value: displayValue(n.key, value) }));
+  if (n.bestGuess !== undefined) view.best_guess = displayValue(n.key, n.bestGuess);
   return view;
 }
 
@@ -49,6 +116,7 @@ export function labelSection(
   for (const [key, n] of Object.entries(d.nutrients) as Array<[NutrientKey, NutrientDecision]>) {
     nutrients[key] = nutrientView(n);
   }
+  const ingredientsSource = d.perSource.find((l) => l.source === d.ingredients?.source);
   return {
     label: { basis: d.basis, nutrients, nutriscore: d.nutriscore },
     confidence: {
@@ -61,9 +129,43 @@ export function labelSection(
       flag_details: d.confidence.flagDetails,
     },
     advice: d.advice,
-    ingredients: d.ingredients,
+    ingredients: d.ingredients
+      ? { ...d.ingredients, lang: ingredientsSource?.original.ingredientsLang ?? null }
+      : null,
     allergens: d.allergens,
     traces: d.traces,
+  };
+}
+
+function scale(values: FlatValues, factor: number): FlatValues {
+  const out: FlatValues = {};
+  for (const [key, value] of Object.entries(values) as Array<[NutrientKey | "sodium_g", number | null]>) {
+    out[key] = value === null ? null : displayValue(key, value * factor);
+  }
+  return out;
+}
+
+export function readyToApply(d: DecidedLabel, pack: PackSize | null): ReadyToApply {
+  const per100: FlatValues = {};
+  const qualifiers: ReadyToApply["qualifiers"] = {};
+  for (const [key, n] of Object.entries(d.nutrients) as Array<[NutrientKey, NutrientDecision]>) {
+    per100[key] = n.value === null ? null : displayValue(key, n.value);
+    if (n.qualifier) qualifiers[key] = n.qualifier;
+  }
+  const salt = per100.salt_g;
+  if (salt !== undefined)
+    per100.sodium_g = salt === null ? null : displayValue("sodium_g", salt / SALT_PER_SODIUM);
+  const compatible =
+    pack !== null &&
+    (d.basis === "100g/100ml" ||
+      (d.basis === "100g" && pack.unit === "g") ||
+      (d.basis === "100ml" && pack.unit === "ml"));
+  return {
+    basis: d.basis,
+    per_100: per100,
+    qualifiers,
+    pack,
+    per_pack: compatible && pack ? scale(per100, pack.amount / 100) : null,
   };
 }
 
@@ -72,8 +174,9 @@ export function perSourceViews(d: DecidedLabel): PerSourceView[] {
     source: l.source,
     url: l.original.url,
     fetched_at: l.original.fetchedAt,
+    last_updated: l.original.updatedAt ?? null,
     basis: l.basis,
-    structured: l.values,
+    structured: displayValues(l.values),
     raw_label: l.original.raw,
     extra_nutrients: l.original.extra,
     self_check: {
@@ -85,4 +188,19 @@ export function perSourceViews(d: DecidedLabel): PerSourceView[] {
     notes: l.notes,
     data_origin: l.original.dataOrigin ?? null,
   }));
+}
+
+export function priceView(priced: PricedOffer, preview: LabelPreview | undefined): PriceView {
+  const { offer, unitPrice } = priced;
+  return {
+    source: offer.source,
+    name: offer.name,
+    brand: offer.brand,
+    url: offer.url,
+    price_eur: offer.priceEur ?? 0,
+    unit_price_eur: unitPrice?.value ?? null,
+    unit: unitPrice?.unit ?? null,
+    in_stock: offer.inStock,
+    value_for_money: unitPrice && preview ? valueForMoney(unitPrice, preview) : null,
+  };
 }

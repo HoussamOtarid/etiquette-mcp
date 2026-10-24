@@ -1,0 +1,316 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { compareWithLabel } from "../../src/app/compare.ts";
+import { NutritionService } from "../../src/app/nutritionService.ts";
+import { displayValue, readyToApply } from "../../src/app/present.ts";
+import { rankByUnitPrice, spreadOf, unitPriceOf, valueForMoney } from "../../src/app/prices.ts";
+import { loadConfig } from "../../src/config.ts";
+import type { Offer, SourceId, SourceLabel, Tier } from "../../src/domain/types.ts";
+import { decideLabel } from "../../src/engine/decide.ts";
+import { Cache } from "../../src/infra/cache.ts";
+import { HealthTracker } from "../../src/infra/health.ts";
+import { HttpClient } from "../../src/infra/http.ts";
+import { silentLogger } from "../../src/infra/logger.ts";
+import type { SearchQuery, SourceAdapter } from "../../src/sources/adapter.ts";
+import { OpenFoodFactsAdapter } from "../../src/sources/openFoodFacts.ts";
+
+function label(source: SourceId, kcal: number, fat: number, carbs: number, protein: number): SourceLabel {
+  return {
+    source,
+    basis: "100g",
+    values: {
+      energy_kcal: { value: kcal },
+      fat_g: { value: fat },
+      carbohydrates_g: { value: carbs },
+      protein_g: { value: protein },
+    },
+    extra: [],
+    raw: null,
+    ingredients: null,
+    allergens: null,
+    traces: null,
+    nutriscore: null,
+    parseStatus: "partial",
+    url: null,
+    fetchedAt: "2026-10-24T00:00:00Z",
+  };
+}
+
+function offer(source: SourceId, name: string, extra: Partial<Offer> = {}): Offer {
+  return {
+    source,
+    sourceProductId: `${source}-${name}-${extra.ean ?? ""}`,
+    url: null,
+    name,
+    brand: null,
+    ean: null,
+    sizeText: null,
+    priceEur: null,
+    unitPriceText: null,
+    inStock: true,
+    ...extra,
+  };
+}
+
+function fake(id: SourceId, tier: Tier, search: (q: SearchQuery) => Offer[], ean = false): SourceAdapter {
+  return {
+    id,
+    tier,
+    displayName: id,
+    capabilities: { text: true, ean },
+    search: async (q) => search(q),
+    getLabel: async (o) => ({ label: o.label ?? null }),
+  };
+}
+
+const config = (extra: Record<string, string> = {}) =>
+  loadConfig({
+    MCP_AUTH_TOKEN: "t".repeat(32),
+    REQUEST_BUDGET_MS: "2000",
+    SOURCE_TIMEOUT_MS: "1000",
+    ...extra,
+  });
+const service = (adapters: SourceAdapter[]) =>
+  new NutritionService(adapters, {
+    cache: new Cache(":memory:"),
+    health: new HealthTracker(),
+    config: config(),
+    logger: silentLogger,
+  });
+
+describe("compare_to", () => {
+  it("rates each nutrient and the whole entry", () => {
+    const nutrients = {
+      energy_kcal: { value: 287 },
+      protein_g: { value: 10 },
+      carbohydrates_g: { value: 49 },
+      fat_g: { value: 5 },
+    };
+    const result = compareWithLabel(
+      { energy_kcal: 287, protein_g: 9.3, carbohydrates_g: 54, fat_g: 3.4, fiber_g: 3 },
+      nutrients,
+    );
+    expect(result.nutrients.energy_kcal?.verdict).toBe("match");
+    expect(result.nutrients.protein_g?.verdict).toBe("close");
+    expect(result.nutrients.carbohydrates_g).toMatchObject({ verdict: "close", difference: -5 });
+    expect(result.nutrients.fat_g).toMatchObject({ verdict: "mismatch", difference: 1.6 });
+    expect(result.nutrients.fiber_g?.verdict).toBe("no_data");
+    expect(result.verdict).toBe("mismatch");
+    expect(compareWithLabel({ energy_kcal: 286 }, nutrients).verdict).toBe("match");
+  });
+});
+
+describe("prices", () => {
+  it("normalises unit prices from the shop text or the pack size", () => {
+    expect(
+      unitPriceOf(offer("labellevie", "Yaourts", { priceEur: 1.05, unitPriceText: "2,10€ le kg" })),
+    ).toEqual({ value: 2.1, unit: "kg" });
+    expect(unitPriceOf(offer("lafourche", "Boisson avoine", { priceEur: 1.39, sizeText: "1 L" }))).toEqual({
+      value: 1.39,
+      unit: "l",
+    });
+    expect(unitPriceOf(offer("naturalia", "Yaourt nature 4x125g", { priceEur: 2.5 }))).toEqual({
+      value: 5,
+      unit: "kg",
+    });
+    expect(unitPriceOf(offer("biocoop", "Sans taille", { priceEur: 3 }))).toBeNull();
+  });
+
+  it("ranks by unit price and computes the spread and value for money", () => {
+    const ranked = rankByUnitPrice([
+      offer("naturalia", "Lait 1L", { priceEur: 2.99 }),
+      offer("lafourche", "Lait 1L", { priceEur: 1.8 }),
+      offer("off", "Lait", { priceEur: null }),
+      offer("biocoop", "Lait", { priceEur: 2.2 }),
+    ]);
+    expect(ranked.map((r) => r.offer.source)).toEqual(["lafourche", "naturalia", "biocoop"]);
+    expect(spreadOf(ranked)).toEqual({ cheapest: 1.8, most_expensive: 2.99, savings_pct: 39.8 });
+    expect(valueForMoney({ value: 10, unit: "kg" }, { energy_kcal: 400, protein_g: 20 })).toEqual({
+      eur_per_100_kcal: 0.25,
+      eur_per_10g_protein: 0.5,
+    });
+  });
+});
+
+describe("presentation", () => {
+  it("rounds values as labels print them and flattens a ready-to-apply label", () => {
+    expect(displayValue("energy_kcal", 76.2428298159)).toBe(76);
+    expect(displayValue("protein_g", 5.100000001)).toBe(5.1);
+    const d = decideLabel({
+      labels: [
+        {
+          ...label("off", 76.24, 1.4, 5.1, 10),
+          values: { ...label("off", 76.24, 1.4, 5.1, 10).values, salt_g: { value: 0.2 } },
+        },
+      ],
+      productName: "Protein pudding",
+      tierOf: () => "A",
+    });
+    const ready = readyToApply(d, { amount: 200, unit: "g" });
+    expect(ready.per_100).toMatchObject({ energy_kcal: 76, protein_g: 10, salt_g: 0.2, sodium_g: 0.08 });
+    expect(ready.per_pack).toMatchObject({ energy_kcal: 152, protein_g: 20, sodium_g: 0.16 });
+    expect(readyToApply(d, { amount: 500, unit: "ml" }).per_pack).toBeNull();
+  });
+});
+
+describe("service features", () => {
+  it("keeps the requested brand, scores products and previews known labels", async () => {
+    const shops = fake("lafourche", "A", () => [
+      offer("lafourche", "Biscuits pois gourmands citron", {
+        brand: "Greendoz",
+        ean: "3701283800444",
+        label: label("lafourche", 452, 19.6, 53.3, 8),
+      }),
+      offer("lafourche", "Biscuits apéritif citron", { brand: "Autre", ean: "3701283800000" }),
+    ]);
+    const result = await service([shops]).findProduct({
+      query: "Biscuits Greendoz Pois Citron",
+      brand: "Greendoz",
+    });
+    expect(result.products.map((p) => p.brand)).toEqual(["Greendoz"]);
+    expect(result.products[0]?.score).toBeGreaterThan(0.3);
+    expect(result.products[0]?.label_preview).toMatchObject({
+      source: "lafourche",
+      energy_kcal: 452,
+      fat_g: 19.6,
+    });
+  });
+
+  it("asks Open Food Facts by name when no shop result has the brand", async () => {
+    const shops = fake("naturalia", "C", () => [
+      offer("naturalia", "Citrons bio", { brand: "Naturalia", ean: "3700000000001" }),
+    ]);
+    const offSearch = vi.fn(() => [
+      offer("off", "Sorbet citron", { brand: "Häagen-Dazs", ean: "3415581101010" }),
+    ]);
+    const off = fake("off", "A", offSearch, true);
+    const result = await service([shops, off]).findProduct({ query: "Sorbet citron", brand: "Häagen-Dazs" });
+    expect(offSearch).toHaveBeenCalled();
+    expect(result.products[0]).toMatchObject({ brand: "Häagen-Dazs", ean: "3415581101010" });
+  });
+
+  it("lists other sizes and flavours of the brand as variants", async () => {
+    const shop = fake("labellevie", "C", () => [
+      offer("labellevie", "Ricotta italiana", {
+        brand: "Zanetti",
+        sizeText: "250 g",
+        ean: "8002710333111",
+        label: label("labellevie", 140, 10, 3, 9),
+      }),
+      offer("labellevie", "Ricotta italiana", { brand: "Zanetti", sizeText: "1500 g", ean: "8002710333005" }),
+      offer("labellevie", "Ricotta di bufala", { brand: "Zanetti", sizeText: "250 g", ean: "8002710333222" }),
+    ]);
+    const result = await service([shop]).getLabel({
+      product: "ricotta italiana 250 g zanetti",
+      brand: "Zanetti",
+    });
+    expect(result.status).toBe("found");
+    expect(result.product?.ean).toBe("8002710333111");
+    expect(result.variants?.map((v) => v.ean)).toEqual(expect.arrayContaining(["8002710333005"]));
+  });
+
+  it("counts a shop once when it lists the product several times", async () => {
+    const shop = fake(
+      "labellevie",
+      "C",
+      (q) =>
+        q.ean
+          ? [1, 2, 3].map((i) =>
+              offer("labellevie", `Kombucha ${i}`, {
+                ean: q.ean,
+                sourceProductId: `k${i}`,
+                label: label("labellevie", 20, 0, 4.8, 0),
+              }),
+            )
+          : [],
+      true,
+    );
+    const result = await service([shop]).getLabel({ product: "3770017807073" });
+    expect(result.confidence?.sources_with_label).toBe(1);
+    expect(result.confidence?.flags).not.toContain("copied_label_collapsed");
+  });
+
+  it("compares prices for one product and across alternatives", async () => {
+    const ean = "3760324840986";
+    const shops = [
+      fake("lafourche", "A", () => [
+        offer("lafourche", "Boisson avoine 1L", {
+          ean,
+          brand: "X",
+          priceEur: 1.39,
+          label: label("lafourche", 43, 1.2, 7.3, 0.6),
+        }),
+      ]),
+      fake("naturalia", "C", () => [
+        offer("naturalia", "Boisson avoine 1L", { ean, brand: "X", priceEur: 1.99 }),
+        offer("naturalia", "Boisson avoine vanille 1L", { ean: "3760000000102", brand: "Y", priceEur: 1.2 }),
+      ]),
+    ];
+    const svc = service(shops);
+    const same = await svc.comparePrices({ product: "boisson avoine 1L", brand: "X" });
+    expect(same.status).toBe("found");
+    expect(same.offers?.map((o) => [o.source, o.unit_price_eur])).toEqual([
+      ["lafourche", 1.39],
+      ["naturalia", 1.99],
+    ]);
+    expect(same.spread?.savings_pct).toBe(30.2);
+    expect(same.cheapest?.value_for_money?.eur_per_100_kcal).toBeCloseTo(0.323, 2);
+
+    const alternatives = await svc.comparePrices({ product: "boisson avoine", mode: "alternatives" });
+    expect(alternatives.alternatives?.[0]?.best).toMatchObject({ source: "naturalia", unit_price_eur: 1.2 });
+  });
+});
+
+describe("get_labels batching", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("resolves several barcodes with one Open Food Facts request", async () => {
+    const eans = ["3760109052641", "5411788047258", "3760196070214"];
+    const fetchMock = vi.fn(async (url: string) => {
+      const u = new URL(url);
+      if (u.pathname.startsWith("/api/v2/product/")) {
+        await new Promise((r) => setTimeout(r, 30));
+        const code = u.pathname.split("/").pop();
+        return Response.json({
+          status: 1,
+          product: {
+            code,
+            product_name: "P",
+            nutriments: { "energy-kcal_100g": 100, fat_100g: 1, carbohydrates_100g: 20, proteins_100g: 3 },
+          },
+        });
+      }
+      const codes = (u.searchParams.get("code") ?? "").split(",");
+      return Response.json({
+        products: codes.map((code) => ({
+          code,
+          product_name: "P",
+          nutriments: { "energy-kcal_100g": 100, fat_100g: 1, carbohydrates_100g: 20, proteins_100g: 3 },
+        })),
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const cfg = config();
+    const deps = {
+      http: new HttpClient({
+        userAgent: "t",
+        timeoutMs: 1000,
+        defaultLimit: { intervalMs: 0, concurrency: 4 },
+        logger: silentLogger,
+      }),
+      cache: new Cache(":memory:"),
+      logger: silentLogger,
+      config: cfg,
+    };
+    const svc = new NutritionService([new OpenFoodFactsAdapter(deps)], {
+      cache: deps.cache,
+      health: new HealthTracker(),
+      config: cfg,
+      logger: silentLogger,
+    });
+    const result = await svc.getLabels({ products: [...eans, "ean:4000000000006"] });
+    expect(result.results.map((r) => r.input)).toEqual([...eans, "ean:4000000000006"]);
+    expect(result.results.slice(0, 3).every((r) => r.status === "found")).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("code=");
+  });
+});

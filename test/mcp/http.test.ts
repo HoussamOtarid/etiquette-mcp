@@ -98,7 +98,13 @@ describe("MCP over HTTP", () => {
   it("lists the tools and answers get_label through the official client", async () => {
     const client = await connect(TOKEN);
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual(["find_product", "get_label", "list_sources"]);
+    expect(tools.map((t) => t.name).sort()).toEqual([
+      "compare_prices",
+      "find_product",
+      "get_label",
+      "get_labels",
+      "list_sources",
+    ]);
 
     const result = await client.callTool({ name: "get_label", arguments: { product: EAN } });
     const data = result.structuredContent as {

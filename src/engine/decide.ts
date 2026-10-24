@@ -26,9 +26,11 @@ function pickText(
   labels: NormalizedLabel[],
   field: "ingredients" | "allergens" | "traces",
 ): { text: string; source: SourceId } | null {
+  const french = (l: NormalizedLabel) =>
+    field !== "ingredients" || (l.original.ingredientsLang ?? "fr") === "fr" ? 0 : 1;
   const candidates = labels
     .filter((l) => l.original[field])
-    .sort((a, b) => TIER_RANK[b.tier] - TIER_RANK[a.tier] || b.weight - a.weight);
+    .sort((a, b) => french(a) - french(b) || TIER_RANK[b.tier] - TIER_RANK[a.tier] || b.weight - a.weight);
   const best = candidates[0];
   const text = best?.original[field];
   return best && text ? { text, source: best.source } : null;

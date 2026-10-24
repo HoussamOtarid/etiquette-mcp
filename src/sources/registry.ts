@@ -23,8 +23,9 @@ export function createAdapters(deps: AdapterDeps): SourceAdapter[] {
 
 /** Per-host politeness limits (requests are spaced; a few run concurrently at most). */
 export const HOST_LIMITS = {
-  "world.openfoodfacts.org": { intervalMs: 6000, concurrency: 1 },
-  "search.openfoodfacts.org": { intervalMs: 8000, concurrency: 1 },
+  // Documented quotas: 15 product reads and 10 searches per minute per IP; the batch endpoint is a search.
+  "world.openfoodfacts.org": { intervalMs: 6500, concurrency: 1 },
+  "search.openfoodfacts.org": { intervalMs: 6500, concurrency: 1 },
   "lafourche.fr": { intervalMs: 2000, concurrency: 1 },
   "*.algolia.net": { intervalMs: 1000, concurrency: 2 },
   "api.kazidomi.com": { intervalMs: 1000, concurrency: 2 },

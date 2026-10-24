@@ -6,20 +6,31 @@ together with how strongly the sources agree, per-store prices and the raw label
 
 ## Tools
 
-| Tool           | Purpose                                                                                                                                                                        |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `find_product` | Search by barcode, name or keywords (optional brand and size). Returns up to 5 products, each grouped across the stores selling it, with prices, unit prices, stock and links. |
-| `get_label`    | Best nutrition label for one product, from a `product_ref`, a barcode or a description (returns candidates when ambiguous).                                                    |
-| `list_sources` | Sources, their capabilities and recent health.                                                                                                                                 |
+| Tool             | Purpose                                                                                                                                                      |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `find_product`   | Search by barcode, name or keywords (optional brand and size). Up to 5 products grouped across stores, with a match score, a macro preview and store offers. |
+| `get_label`      | Best nutrition label for one product, from a barcode, a `product_ref` or a description (returns candidates when ambiguous).                                  |
+| `get_labels`     | `get_label` for up to 20 products in one call (a meal, a receipt); Open Food Facts lookups are combined.                                                     |
+| `compare_prices` | Prices for one product across stores by unit price (€/kg, €/L), or the cheapest alternatives for a description, with € per 100 kcal and per 10 g protein.    |
+| `list_sources`   | Sources, their capabilities and recent health.                                                                                                               |
+
+Every lookup tool accepts `sources` to restrict the stores used (default: all).
 
 A `get_label` answer contains:
+- `status`: `found`, `ambiguous` (see `candidates`), `not_found`, or `incomplete` when sources did not answer in time
+  (retry after `retry_after_s`)
 - `label.nutrients`: per nutrient, the chosen value with its agreement (`strong`, `weak`, `majority`, `single`
-  or `conflict`), how many sources agree, and any dissenting values
+  or `conflict`), how many sources agree, dissenting values and `<` / traces qualifiers
+- `ready_to_apply`: flat values per 100 g/ml (salt and sodium), and per pack when the pack size is known
 - `confidence`: overall level (`high` / `medium` / `low` / `none`), independent source count, missing nutrients,
-  per-source self-check results and flags
+  self-check results, flags and `flag_details` naming the source and nutrient behind each flag
 - `advice`: a short instruction for the calling model
-- `ingredients`, `allergens`, `traces`, `nutriscore`, and `offers` with prices per store
-- `per_source`: each source's structured label, raw label text and unmapped extra nutrients (vitamins, minerals, …)
+- `comparison`: with `compare_to`, a per-nutrient verdict (`match`, `close`, `mismatch`, `no_data`) against values
+  you already have
+- `variants`: same brand, other sizes or flavours
+- `ingredients` (with language), `allergens`, `traces`, `nutriscore`, and `offers` with prices per store
+- `per_source`: each source's structured label, raw label text, unmapped extra nutrients (vitamins, minerals, …) and
+  when the source last updated it, if known
 
 All values are per 100 g or per 100 ml (`label.basis`).
 
@@ -30,7 +41,7 @@ All values are per 100 g or per 100 ml (`label.basis`).
 2. **Normalisation**: sodium is converted to salt, swapped kJ/kcal values are repaired, zeros from sources that
    use 0 for "unknown" are ignored, and impossible values are dropped.
 3. **Self-check**: energy is compared with fat, carbohydrates, protein and fibre, and kJ with kcal. Inconsistent labels
-   count less, and an identifiable decimal slip removes the faulty value.
+   count less; an identifiable decimal slip, or a 0 that explains missing energy, removes the faulty value.
 4. **Voting**: per nutrient, values agreeing within label rounding (or within EU declared-value tolerances) are
    clustered and weighted by source quality. The chosen value is always a published value, never an average.
    Copies of another source's label count once.
@@ -39,6 +50,9 @@ All values are per 100 g or per 100 ml (`label.basis`).
 
 Open Food Facts, La Fourche, Kazidomi, Biocoop, La Vie Claire, Naturalia and La Belle Vie. Requests are anonymous:
 fixed neutral user agent, no cookies, no accounts. Each host is rate limited, and results are cached in SQLite.
+
+Open Food Facts lookups follow its documented quotas: concurrent barcode lookups are combined into one request, and a
+tool call waits for them (up to `OFF_MAX_WAIT_MS`) instead of failing, backing off on 429/503.
 
 ## Running
 
@@ -57,17 +71,18 @@ The MCP endpoint is `POST /mcp` (streamable HTTP, stateless) with `Authorization
 
 ### Configuration
 
-| Variable            | Default             |                                                               |
-| ------------------- | ------------------- | ------------------------------------------------------------- |
-| `MCP_AUTH_TOKEN`    | (required)          | Bearer token, at least 32 characters                          |
-| `PORT`              | `3000`              |                                                               |
-| `DATA_DIR`          | `./data`            | SQLite cache location                                         |
-| `SOURCE_TIMEOUT_MS` | `8000`              | Time limit per source call                                    |
-| `REQUEST_BUDGET_MS` | `20000`             | Time limit per tool call; late sources keep filling the cache |
-| `LOG_LEVEL`         | `info`              | `debug`, `info`, `warn`, `error`                              |
-| `LBV_ALTERNATE`     | `1-9`               | La Belle Vie price/stock zone                                 |
-| `DISABLED_SOURCES`  |                     | Comma-separated source ids                                    |
-| `USER_AGENT`        | `etiquette-mcp/0.1` |                                                               |
+| Variable            | Default             |                                                                  |
+| ------------------- | ------------------- | ---------------------------------------------------------------- |
+| `MCP_AUTH_TOKEN`    | (required)          | Bearer token, at least 32 characters                             |
+| `PORT`              | `3000`              |                                                                  |
+| `DATA_DIR`          | `./data`            | SQLite cache location                                            |
+| `SOURCE_TIMEOUT_MS` | `8000`              | Time limit per source call                                       |
+| `REQUEST_BUDGET_MS` | `20000`             | Time limit per tool call; late sources keep filling the cache    |
+| `OFF_MAX_WAIT_MS`   | `120000`            | How long a tool call may wait for queued Open Food Facts lookups |
+| `LOG_LEVEL`         | `info`              | `debug`, `info`, `warn`, `error`                                 |
+| `LBV_ALTERNATE`     | `1-9`               | La Belle Vie price/stock zone                                    |
+| `DISABLED_SOURCES`  |                     | Comma-separated source ids                                       |
+| `USER_AGENT`        | `etiquette-mcp/0.1` |                                                                  |
 
 ## Development
 

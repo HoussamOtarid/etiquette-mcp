@@ -9,9 +9,26 @@ import type { Cache } from "../infra/cache.ts";
 import type { HealthTracker } from "../infra/health.ts";
 import type { Logger } from "../infra/logger.ts";
 import type { SourceAdapter } from "../sources/adapter.ts";
-import { labelSection, offerView, perSourceViews, productView } from "./present.ts";
+import { compareWithLabel, type ExpectedValues } from "./compare.ts";
+import {
+  labelPreview,
+  labelSection,
+  offerView,
+  perSourceViews,
+  priceView,
+  productView,
+  readyToApply,
+} from "./present.ts";
+import { rankByUnitPrice, spreadOf } from "./prices.ts";
 import { callSource, mergeStatus } from "./sourceCall.ts";
-import type { FindProductResult, GetLabelResult, SourceInfo, SourceStatus } from "./types.ts";
+import type {
+  ComparePricesResult,
+  FindProductResult,
+  GetLabelResult,
+  GetLabelsResult,
+  SourceInfo,
+  SourceStatus,
+} from "./types.ts";
 
 export interface FindProductInput {
   query: string;
@@ -24,8 +41,31 @@ export interface FindProductInput {
 export interface GetLabelInput {
   product: string;
   brand?: string;
+  sources?: SourceId[];
+  includeRaw?: boolean;
+  compareTo?: ExpectedValues;
+}
+
+export interface GetLabelsInput {
+  products: string[];
+  sources?: SourceId[];
   includeRaw?: boolean;
 }
+
+export interface ComparePricesInput {
+  product: string;
+  brand?: string;
+  mode?: "same_product" | "alternatives";
+  sources?: SourceId[];
+  limit?: number;
+}
+
+type RankedGroup = ProductGroup & { score: number };
+
+type Resolution =
+  | { kind: "group"; group: ProductGroup; ranked: RankedGroup[] }
+  | { kind: "ambiguous"; ranked: RankedGroup[] }
+  | { kind: "none"; advice: string };
 
 interface Statuses {
   sources: Partial<Record<SourceId, SourceStatus>>;
@@ -67,6 +107,53 @@ export function nameQueries(hint: Pick<Offer, "name" | "brand">): string[] {
 }
 const GROUP_TTL = { hitMs: 6 * 3600_000, missMs: 0 };
 const VERIFY_CANDIDATES = 2;
+const VARIANT_SIMILARITY = 0.4;
+const MIN_RELEVANCE = 0.2;
+const MIN_NULL_BRAND_RELEVANCE = 0.5;
+const WEAK_SHOP_MATCH = 0.4;
+const MAX_ALTERNATIVES = 10;
+const ALTERNATIVE_QUERY_WORDS = 4;
+const AMBIGUOUS_ADVICE =
+  "Several products match. Ask the user which one, then call get_label with its product_ref.";
+const EXPIRED_ADVICE = "This product reference has expired. Search again with find_product.";
+const UNKNOWN_BARCODE_ADVICE = "No source knows this barcode. Ask the user for the label on the pack.";
+const NO_MATCH_ADVICE = "No product matches this query in any source.";
+const PRICE_NOTE = "Online list prices at lookup time; they can differ by shop, delivery zone or promotion.";
+
+/**
+ * With a brand given, other brands are dropped when products of that brand were found (products without a brand stay
+ * if their name matches well). Clearly unrelated results are dropped when better ones exist.
+ */
+/** The shops' results plausibly include the product: one matches the brand (if given) and the name reasonably well. */
+function shopsFoundIt(offers: Offer[], query: string, brand: string | undefined): boolean {
+  return offers.some(
+    (o) =>
+      (!brand || sameBrand(o.brand, brand) === true) &&
+      tokenSimilarity(query, `${o.name} ${o.brand ?? ""}`) >= WEAK_SHOP_MATCH,
+  );
+}
+
+/** A shop listing a product several times gives one label, not several votes: keep its most complete one. */
+function onePerSource(labels: SourceLabel[]): SourceLabel[] {
+  const best = new Map<SourceId, SourceLabel>();
+  for (const label of labels) {
+    const current = best.get(label.source);
+    if (!current || Object.keys(label.values).length > Object.keys(current.values).length)
+      best.set(label.source, label);
+  }
+  return [...best.values()];
+}
+
+export function relevantGroups(ranked: RankedGroup[], brand: string | undefined): RankedGroup[] {
+  let kept = ranked;
+  if (brand && ranked.some((g) => sameBrand(g.brand, brand) === true)) {
+    kept = ranked.filter(
+      (g) => sameBrand(g.brand, brand) === true || (!g.brand && g.score >= MIN_NULL_BRAND_RELEVANCE),
+    );
+  }
+  if (kept.some((g) => g.score >= MIN_RELEVANCE)) kept = kept.filter((g) => g.score >= MIN_RELEVANCE);
+  return kept;
+}
 
 /** Orchestrates sources, identity and the decision engine for the MCP tools. */
 export class NutritionService {
@@ -111,21 +198,25 @@ export class NutritionService {
     const status: Statuses = { sources: {}, notes: [] };
     const ean = looksLikeBarcode(input.query) ? normalizeEan(input.query) : null;
 
-    const groups = ean
-      ? await this.groupsForEan(ean, adapters, deadline, status)
-      : await this.groupsForText(input, adapters, deadline, status);
-    const ranked = ean
-      ? groups
-      : rankGroups(groups, { query: input.query, brand: input.brand, size: input.size });
-    const top = ranked.slice(0, limit);
-    for (const g of top) this.deps.cache.set("group", g.ref, g, GROUP_TTL.hitMs);
-    if (!ean && top.some((g) => g.match === "single_offer" && !g.ean))
+    if (ean) {
+      const groups = await this.groupsForEan(ean, adapters, deadline, status);
+      this.remember(groups);
+      return {
+        query_kind: "barcode",
+        products: groups.slice(0, limit).map((g) => productView(g, { tierOf: this.tierOf })),
+        sources: status.sources,
+        notes: status.notes,
+      };
+    }
+    const top = (await this.rankedForText(input, adapters, deadline, status)).slice(0, limit);
+    this.remember(top);
+    if (top.some((g) => g.match === "single_offer" && !g.ean))
       status.notes.push(
         "Products found in a single store without a barcode cannot be cross-checked by barcode.",
       );
     return {
-      query_kind: ean ? "barcode" : "text",
-      products: top.map(productView),
+      query_kind: "text",
+      products: top.map((g) => productView(g, { tierOf: this.tierOf, score: g.score })),
       sources: status.sources,
       notes: status.notes,
     };
@@ -134,91 +225,193 @@ export class NutritionService {
   async getLabel(input: GetLabelInput): Promise<GetLabelResult> {
     const deadline = Date.now() + this.deps.config.requestBudgetMs;
     const status: Statuses = { sources: {}, notes: [] };
-    const adapters = this.adapters;
-    const ref = input.product.trim();
+    const adapters = this.selected(input.sources);
+    const resolution = await this.resolve(input.product, input.brand, adapters, deadline, status);
 
-    let group: ProductGroup | null = null;
-    let others: ProductGroup[] = [];
-    const barcode = ref.startsWith("ean:")
-      ? normalizeEan(ref.slice(4))
-      : looksLikeBarcode(ref)
-        ? normalizeEan(ref)
-        : null;
-    if (ref.startsWith("grp:")) {
-      group = this.deps.cache.get<ProductGroup>("group", ref) ?? null;
-      if (!group)
-        return this.empty(
-          "not_found",
-          status,
-          "This product reference has expired. Search again with find_product.",
-        );
-    } else if (barcode) {
-      group =
-        this.deps.cache.get<ProductGroup>("group", `ean:${barcode}`) ??
-        (await this.groupsForEan(barcode, adapters, deadline, status))[0] ??
-        null;
-      if (!group)
-        return this.notFoundOrIncomplete(
-          status,
-          "No source knows this barcode. Ask the user for the label on the pack.",
-        );
-    } else {
-      const groups = rankGroups(
-        await this.groupsForText({ query: ref, brand: input.brand }, adapters, deadline, status),
-        {
-          query: ref,
-          brand: input.brand,
-        },
-      );
-      for (const g of groups.slice(0, MAX_RESULTS)) this.deps.cache.set("group", g.ref, g, GROUP_TTL.hitMs);
-      if (groups.length === 0)
-        return this.notFoundOrIncomplete(status, "No product matches this query in any source.");
-      if (!isUnambiguous(groups)) {
-        return {
-          ...this.empty(
-            "ambiguous",
-            status,
-            "Several products match. Ask the user which one, then call get_label with its product_ref.",
-          ),
-          candidates: groups.slice(0, MAX_RESULTS).map(productView),
-        };
-      }
-      group = groups[0] ?? null;
-      others = groups.slice(1, MAX_RESULTS + 1);
-      if (group)
-        status.notes.push(`Resolved the query to "${group.name}"${group.brand ? ` (${group.brand})` : ""}.`);
+    if (resolution.kind === "none") return this.notFoundOrIncomplete(status, resolution.advice);
+    if (resolution.kind === "ambiguous") {
+      return {
+        ...this.empty("ambiguous", status, AMBIGUOUS_ADVICE),
+        candidates: resolution.ranked.slice(0, MAX_RESULTS).map((g) => this.view(g)),
+      };
     }
-    if (!group) return this.empty("not_found", status, "No product matches this query in any source.");
 
+    const { group, ranked } = resolution;
     const labels = await this.labelsFor(group, deadline, status);
     const decided = decideLabel({ labels, productName: group.name, tierOf: this.tierOf });
+    const product = productView(group, { tierOf: this.tierOf });
     const result: GetLabelResult = {
       status: "found",
-      product: productView(group),
+      product,
       ...labelSection(decided),
+      ready_to_apply: readyToApply(decided, product.pack),
       offers: group.offers.map(offerView),
       sources: status.sources,
       notes: status.notes,
     };
+    if (input.compareTo && Object.keys(input.compareTo).length > 0) {
+      result.comparison = compareWithLabel(input.compareTo, decided.nutrients);
+    }
     if (input.includeRaw !== false) result.per_source = perSourceViews(decided);
+
+    const others = ranked.filter((g) => g.ref !== group.ref);
+    const variants = others.filter(
+      (g) =>
+        sameBrand(g.brand, group.brand) === true && tokenSimilarity(g.name, group.name) >= VARIANT_SIMILARITY,
+    );
+    if (variants.length > 0) result.variants = variants.slice(0, MAX_RESULTS).map((g) => this.view(g));
+
     const retry = this.retryHint(status);
     if (decided.confidence.overall === "none" && retry) {
       result.status = "incomplete";
       result.retry_after_s = retry.seconds;
       result.advice = `${retry.message} ${result.advice}`;
     }
-    if (decided.confidence.overall === "none" && others.length > 0) {
-      result.similar_products = others.map(productView);
+    const similar = others.filter((g) => !variants.includes(g));
+    if (decided.confidence.overall === "none" && similar.length > 0) {
+      result.similar_products = similar.slice(0, MAX_RESULTS).map((g) => this.view(g));
       result.notes.push("similar_products are other products (often other brands), not the requested one.");
     }
-    const late = Object.entries(status.sources)
-      .filter(([, s]) => s === "timeout")
-      .map(([s]) => s);
-    if (late.length > 0)
-      result.notes.push(
-        `Still loading from ${late.join(", ")}; calling again shortly may add these sources.`,
-      );
     return result;
+  }
+
+  /** Several products in one call. Their Open Food Facts lookups share requests; shops stay within their limits. */
+  async getLabels(input: GetLabelsInput): Promise<GetLabelsResult> {
+    const results = await Promise.all(
+      input.products.map(async (product) => ({
+        input: product,
+        ...(await this.getLabel({ product, sources: input.sources, includeRaw: input.includeRaw ?? false })),
+      })),
+    );
+    return { results };
+  }
+
+  async comparePrices(input: ComparePricesInput): Promise<ComparePricesResult> {
+    const deadline = Date.now() + this.deps.config.requestBudgetMs;
+    const status: Statuses = { sources: {}, notes: [PRICE_NOTE] };
+    const adapters = this.selected(input.sources);
+    const mode = input.mode ?? "same_product";
+    const base = { mode, sources: status.sources, notes: status.notes } as const;
+
+    if (mode === "alternatives") {
+      const query =
+        looksLikeBarcode(input.product) ||
+        input.product.startsWith("ean:") ||
+        input.product.startsWith("grp:")
+          ? await this.describe(input.product, adapters, deadline, status)
+          : input.product;
+      if (!query) return { ...base, ...this.priceMiss(status), product: null };
+      const ranked = await this.rankedForText({ query, brand: input.brand }, adapters, deadline, status);
+      const alternatives = ranked
+        .slice(0, Math.min(input.limit ?? MAX_ALTERNATIVES, MAX_ALTERNATIVES))
+        .map((g) => {
+          const preview = labelPreview(g, this.tierOf);
+          const best = rankByUnitPrice(g.offers, g.sizeText)[0];
+          return { product: this.view(g), best: best ? priceView(best, preview) : null };
+        });
+      alternatives.sort(
+        (a, b) =>
+          (a.best?.unit_price_eur ?? Number.POSITIVE_INFINITY) -
+          (b.best?.unit_price_eur ?? Number.POSITIVE_INFINITY),
+      );
+      if (alternatives.length === 0) return { ...base, ...this.priceMiss(status), product: null };
+      return { ...base, status: "found", product: null, alternatives };
+    }
+
+    const resolution = await this.resolve(input.product, input.brand, adapters, deadline, status);
+    if (resolution.kind === "none") return { ...base, ...this.priceMiss(status), product: null };
+    if (resolution.kind === "ambiguous") {
+      return {
+        ...base,
+        status: "ambiguous",
+        product: null,
+        candidates: resolution.ranked.slice(0, MAX_RESULTS).map((g) => this.view(g)),
+      };
+    }
+    const { group } = resolution;
+    const preview = labelPreview(group, this.tierOf);
+    const offers = rankByUnitPrice(group.offers, group.sizeText);
+    const views = offers.map((o) => priceView(o, preview));
+    if (views.length === 0) status.notes.push("No store lists a price for this product.");
+    return {
+      ...base,
+      status: "found",
+      product: productView(group, { tierOf: this.tierOf }),
+      offers: views,
+      cheapest: views[0] ?? null,
+      spread: spreadOf(offers),
+    };
+  }
+
+  /** Turns a product reference, barcode or description into one product (or candidates). */
+  private async resolve(
+    product: string,
+    brand: string | undefined,
+    adapters: SourceAdapter[],
+    deadline: number,
+    status: Statuses,
+  ): Promise<Resolution> {
+    const ref = product.trim();
+    if (ref.startsWith("grp:")) {
+      const group = this.deps.cache.get<ProductGroup>("group", ref);
+      return group ? { kind: "group", group, ranked: [] } : { kind: "none", advice: EXPIRED_ADVICE };
+    }
+    const barcode = ref.startsWith("ean:")
+      ? normalizeEan(ref.slice(4))
+      : looksLikeBarcode(ref)
+        ? normalizeEan(ref)
+        : null;
+    if (barcode) {
+      const group =
+        this.deps.cache.get<ProductGroup>("group", `ean:${barcode}`) ??
+        (await this.groupsForEan(barcode, adapters, deadline, status))[0];
+      if (!group) return { kind: "none", advice: UNKNOWN_BARCODE_ADVICE };
+      this.remember([group]);
+      return { kind: "group", group, ranked: [] };
+    }
+    const ranked = await this.rankedForText({ query: ref, brand }, adapters, deadline, status);
+    this.remember(ranked.slice(0, MAX_RESULTS));
+    const [first] = ranked;
+    if (!first) return { kind: "none", advice: NO_MATCH_ADVICE };
+    if (!isUnambiguous(ranked)) return { kind: "ambiguous", ranked };
+    status.notes.push(`Resolved the query to "${first.name}"${first.brand ? ` (${first.brand})` : ""}.`);
+    return { kind: "group", group: first, ranked };
+  }
+
+  /** Name + brand of a product given by reference or barcode, to search for alternatives. */
+  private async describe(
+    product: string,
+    adapters: SourceAdapter[],
+    deadline: number,
+    status: Statuses,
+  ): Promise<string | null> {
+    const resolution = await this.resolve(product, undefined, adapters, deadline, status);
+    if (resolution.kind !== "group") return null;
+    return nameTokens(resolution.group.name).slice(0, ALTERNATIVE_QUERY_WORDS).join(" ") || null;
+  }
+
+  private async rankedForText(
+    input: FindProductInput,
+    adapters: SourceAdapter[],
+    deadline: number,
+    status: Statuses,
+  ): Promise<RankedGroup[]> {
+    const groups = await this.groupsForText(input, adapters, deadline, status);
+    const size = input.size ?? (parseQuantity(input.query) ? input.query : undefined);
+    return relevantGroups(rankGroups(groups, { query: input.query, brand: input.brand, size }), input.brand);
+  }
+
+  private remember(groups: ProductGroup[]): void {
+    for (const g of groups) this.deps.cache.set("group", g.ref, g, GROUP_TTL.hitMs);
+  }
+
+  private view(g: RankedGroup | ProductGroup) {
+    return productView(g, { tierOf: this.tierOf, score: "score" in g ? (g.score as number) : undefined });
+  }
+
+  private priceMiss(status: Statuses): Pick<ComparePricesResult, "status" | "retry_after_s"> {
+    const retry = this.retryHint(status);
+    return retry ? { status: "incomplete", retry_after_s: retry.seconds } : { status: "not_found" };
   }
 
   // ── flows ──────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -228,8 +421,14 @@ export class NutritionService {
     return this.adapters.filter((a) => ids.includes(a.id));
   }
 
-  private remaining(deadline: number): number {
-    return Math.min(this.deps.config.sourceTimeoutMs, deadline - Date.now());
+  /**
+   * Time left for a source call. Open Food Facts calls may wait longer (OFF_MAX_WAIT_MS from the request start) since
+   * its lookups are queued to respect its quotas; other sources keep the per-source and per-request limits.
+   */
+  private remaining(deadline: number, source?: SourceId): number {
+    const { sourceTimeoutMs, requestBudgetMs, offMaxWaitMs } = this.deps.config;
+    if (source === "off") return Math.max(0, deadline - requestBudgetMs + offMaxWaitMs - Date.now());
+    return Math.min(sourceTimeoutMs, deadline - Date.now());
   }
 
   private record(status: Statuses, source: SourceId, outcome: SourceStatus): void {
@@ -245,7 +444,7 @@ export class NutritionService {
     const outcome = await callSource(
       adapter.id,
       () => adapter.search(query),
-      this.remaining(deadline),
+      this.remaining(deadline, adapter.id),
       this.deps.health,
     );
     if (outcome.status !== "ok") {
@@ -265,9 +464,11 @@ export class NutritionService {
     const query = { text: input.query, brand: input.brand, limit: MAX_RESULTS };
     const shops = adapters.filter((a) => a.capabilities.text && a.id !== "off");
     const offers = (await Promise.all(shops.map((a) => this.search(a, query, deadline, status)))).flat();
-    // Open Food Facts name search is heavily rate limited; keep its quota for barcode lookups unless shops found nothing.
+    // Open Food Facts name search is heavily rate limited: only use it when the shops did not find the product.
     const off = adapters.find((a) => a.id === "off" && a.capabilities.text);
-    if (offers.length === 0 && off) offers.push(...(await this.search(off, query, deadline, status)));
+    if (off && !shopsFoundIt(offers, input.query, input.brand)) {
+      offers.push(...(await this.search(off, query, deadline, status)));
+    }
     const ranked = rankGroups(groupOffers(offers, this.tierOf), {
       query: input.query,
       brand: input.brand,
@@ -291,7 +492,7 @@ export class NutritionService {
     const outcome = await callSource(
       offer.source,
       () => adapter.getLabel(offer),
-      this.remaining(deadline),
+      this.remaining(deadline, offer.source),
       this.deps.health,
     );
     if (outcome.status !== "ok") {
@@ -312,11 +513,18 @@ export class NutritionService {
     deadline: number,
     status: Statuses,
   ): Promise<ProductGroup[]> {
-    const direct = adapters.filter((a) => a.capabilities.ean);
+    const direct = adapters.filter((a) => a.capabilities.ean && a.id !== "off");
     const indirect = adapters.filter((a) => !a.capabilities.ean && a.capabilities.text);
+    const offAdapter = adapters.find((a) => a.id === "off" && a.capabilities.ean);
+    const fromOff = offAdapter
+      ? this.search(offAdapter, { ean, limit: 1 }, deadline, status)
+      : Promise.resolve([]);
     const found = (
       await Promise.all(direct.map((a) => this.search(a, { ean, limit: 3 }, deadline, status)))
     ).flat();
+    // Open Food Facts may be queued for a while: only wait for it before the name searches when no shop knows the
+    // barcode, since its name is then the only hint.
+    if (found.length === 0) found.push(...(await fromOff));
 
     // Shop names are usually French and descriptive; Open Food Facts names can be terse or in English.
     const hints = [
@@ -343,6 +551,7 @@ export class NutritionService {
     } else {
       for (const a of indirect) this.record(status, a.id, "not_supported");
     }
+    for (const offer of await fromOff) if (!found.includes(offer)) found.push(offer);
     const groups = groupOffers(found, this.tierOf);
     return groups.filter((g) => g.ean === ean);
   }
@@ -368,7 +577,7 @@ export class NutritionService {
       const outcome = await callSource(
         adapter.id,
         () => adapter.getLabel(offer),
-        this.remaining(deadline),
+        this.remaining(deadline, adapter.id),
         this.deps.health,
       );
       if (outcome.status !== "ok") {
@@ -391,7 +600,7 @@ export class NutritionService {
         const outcome = await callSource(
           offer.source,
           () => adapter.getLabel(offer),
-          this.remaining(deadline),
+          this.remaining(deadline, offer.source),
           this.deps.health,
         );
         if (outcome.status !== "ok") {
@@ -410,7 +619,7 @@ export class NutritionService {
       }
       labels.push(withInferredBasis(o.label, o.offer.sizeText ?? group.sizeText ?? o.offer.name));
     }
-    return labels;
+    return onePerSource(labels);
   }
 
   /** When sources failed, an empty answer is not final: say so and suggest when to retry. */

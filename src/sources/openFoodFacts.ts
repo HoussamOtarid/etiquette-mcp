@@ -12,9 +12,12 @@ import {
   type SearchQuery,
   type SourceAdapter,
 } from "./adapter.ts";
+import { BarcodeBatcher } from "./barcodeBatcher.ts";
 import { cachedSearch, setNumber } from "./shared.ts";
 
 const PRODUCT_URL = "https://world.openfoodfacts.org/api/v2/product";
+const BATCH_URL = "https://world.openfoodfacts.org/api/v2/search";
+const MAX_BATCH = 50;
 const SEARCH_URL = "https://search.openfoodfacts.org/search";
 const FIELDS = [
   "code",
@@ -29,6 +32,8 @@ const FIELDS = [
   "allergens_tags",
   "traces_tags",
   "data_sources_tags",
+  "last_modified_t",
+  "lang",
 ].join(",");
 
 interface OffProduct {
@@ -44,6 +49,8 @@ interface OffProduct {
   allergens_tags?: string[];
   traces_tags?: string[];
   data_sources_tags?: string[];
+  last_modified_t?: number;
+  lang?: string;
 }
 
 const NUTRIMENTS: Array<[NutrientKey, string]> = [
@@ -86,11 +93,15 @@ export function parseOffProduct(product: OffProduct): Offer | null {
   label.nutriscore = /^[a-e]$/i.test(product.nutriscore_grade ?? "")
     ? (product.nutriscore_grade ?? null)
     : null;
-  label.ingredients = cleanText(product.ingredients_text_fr ?? product.ingredients_text);
+  const ingredientsFr = cleanText(product.ingredients_text_fr);
+  label.ingredients = ingredientsFr ?? cleanText(product.ingredients_text);
+  const lang = ingredientsFr ? "fr" : product.lang;
+  if (label.ingredients && lang) label.ingredientsLang = lang;
   label.allergens = tagsText(product.allergens_tags);
   label.traces = tagsText(product.traces_tags);
   const sources = product.data_sources_tags ?? [];
   label.dataOrigin = sources.some((s) => s.includes("producer")) ? "producer" : "crowd";
+  if (product.last_modified_t) label.updatedAt = new Date(product.last_modified_t * 1000).toISOString();
   finalizeLabel(label);
 
   return {
@@ -129,7 +140,10 @@ export function parseOffSearch(body: { hits?: OffProduct[] }): Offer[] {
   });
 }
 
-/** Open Food Facts: open database, barcode lookup and name/brand search. Never sells anything (no prices). */
+/**
+ * Open Food Facts: open database, barcode lookup and name/brand search. Never sells anything (no prices).
+ * Barcode lookups go through a batcher so that concurrent lookups share requests within the API quotas.
+ */
 export class OpenFoodFactsAdapter implements SourceAdapter {
   readonly id = "off" as const;
   readonly tier = "A" as const;
@@ -137,9 +151,15 @@ export class OpenFoodFactsAdapter implements SourceAdapter {
   readonly capabilities = { text: true, ean: true };
 
   private readonly deps: AdapterDeps;
+  private readonly batcher: BarcodeBatcher<OffProduct>;
 
   constructor(deps: AdapterDeps) {
     this.deps = deps;
+    this.batcher = new BarcodeBatcher<OffProduct>(
+      (code) => this.fetchProduct(code),
+      (codes) => this.fetchProducts(codes),
+      { maxBatch: MAX_BATCH, maxRetries: 3, baseBackoffMs: 5000, maxBackoffMs: 60_000 },
+    );
   }
 
   async search(query: SearchQuery): Promise<Offer[]> {
@@ -164,13 +184,34 @@ export class OpenFoodFactsAdapter implements SourceAdapter {
 
   private async byEan(ean: string): Promise<Offer | null> {
     const { value } = await this.deps.cache.wrap<Offer>("label:off", ean, TTL.label, async () => {
-      const res = await this.deps.http.getJson<{ status?: number; product?: OffProduct }>(
-        `${PRODUCT_URL}/${ean}?fields=${FIELDS}`,
-        { allowStatus: [404] },
-      );
-      if (res.status === 404 || res.body.status !== 1 || !res.body.product) return null;
-      return parseOffProduct({ ...res.body.product, code: res.body.product.code ?? ean });
+      const product = await this.batcher.lookup(ean);
+      return product ? parseOffProduct({ ...product, code: product.code ?? ean }) : null;
     });
     return value;
+  }
+
+  private async fetchProduct(ean: string): Promise<OffProduct | null> {
+    const res = await this.deps.http.getJson<{ status?: number; product?: OffProduct }>(
+      `${PRODUCT_URL}/${ean}?fields=${FIELDS}`,
+      { allowStatus: [404], retry: false },
+    );
+    return res.status === 404 || res.body.status !== 1 ? null : (res.body.product ?? null);
+  }
+
+  private async fetchProducts(eans: string[]): Promise<Map<string, OffProduct>> {
+    const params = new URLSearchParams({
+      code: eans.join(","),
+      fields: FIELDS,
+      page_size: String(eans.length),
+    });
+    const res = await this.deps.http.getJson<{ products?: OffProduct[] }>(`${BATCH_URL}?${params}`, {
+      retry: false,
+    });
+    const byCode = new Map<string, OffProduct>();
+    for (const product of res.body.products ?? []) {
+      const code = usableEan(product.code);
+      if (code) byCode.set(code, product);
+    }
+    return byCode;
   }
 }

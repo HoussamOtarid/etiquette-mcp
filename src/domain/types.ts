@@ -50,6 +50,8 @@ export interface SourceLabel {
   /** The label exactly as published, when it is free text or a table that can be serialised to text. */
   raw: string | null;
   ingredients: string | null;
+  /** Language of the ingredients text, when known (shops publish French). */
+  ingredientsLang?: string;
   allergens: string | null;
   traces: string | null;
   nutriscore: string | null;
@@ -62,6 +64,8 @@ export interface SourceLabel {
   parseStatus: ParseStatus;
   url: string | null;
   fetchedAt: string;
+  /** When the source last changed this product's data, if the source says. */
+  updatedAt?: string;
 }
 
 /** A product as listed by one source (search result). */

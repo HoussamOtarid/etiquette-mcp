@@ -1,3 +1,6 @@
+import { distance } from "fastest-levenshtein";
+import snowball from "snowball-stemmers";
+
 const STOPWORDS = new Set([
   "a",
   "au",
@@ -39,14 +42,45 @@ export function nameTokens(text: string | null | undefined): string[] {
   return cleaned.split(" ").filter((w) => w.length >= 2 && !STOPWORDS.has(w));
 }
 
-/** Jaccard similarity of two token sets, 0..1. */
+const frenchStemmer = snowball.newStemmer("french");
+const TYPO_MIN_LENGTH = 5;
+
+interface Token {
+  raw: string;
+  stem: string;
+}
+
+function tokensOf(text: string | null | undefined): Token[] {
+  const seen = new Set<string>();
+  return nameTokens(text)
+    .map((raw) => ({ raw, stem: frenchStemmer.stem(raw) }))
+    .filter((t) => !seen.has(t.stem) && seen.add(t.stem));
+}
+
+/** Same word: same stem (plural, gender), or the written words are one edit apart (typo). */
+function sameToken(a: Token, b: Token): boolean {
+  if (a.stem === b.stem) return true;
+  return a.raw.length >= TYPO_MIN_LENGTH && b.raw.length >= TYPO_MIN_LENGTH && distance(a.raw, b.raw) <= 1;
+}
+
+/**
+ * Similarity of two product names, 0..1: Jaccard index over tokens matched by stem or by a one-letter typo
+ * ("complets" / "complètes", "musli" / "muesli"). Word order does not matter.
+ */
 export function tokenSimilarity(a: string | null | undefined, b: string | null | undefined): number {
-  const ta = new Set(nameTokens(a));
-  const tb = new Set(nameTokens(b));
-  if (ta.size === 0 || tb.size === 0) return 0;
+  const ta = tokensOf(a);
+  const tb = tokensOf(b);
+  if (ta.length === 0 || tb.length === 0) return 0;
+  const unmatched = [...tb];
   let shared = 0;
-  for (const token of ta) if (tb.has(token)) shared++;
-  return shared / (ta.size + tb.size - shared);
+  for (const token of ta) {
+    const i = unmatched.findIndex((other) => sameToken(token, other));
+    if (i >= 0) {
+      shared++;
+      unmatched.splice(i, 1);
+    }
+  }
+  return shared / (ta.length + tb.length - shared);
 }
 
 /** Open Food Facts style tag: "Prix Mini" → "prix-mini", "Côteaux Nantais" → "coteaux-nantais". */

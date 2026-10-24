@@ -11,19 +11,20 @@ import type { NutrientKey } from "../domain/nutrients.ts";
 
 const EPSILON = 1e-9;
 
-function strongTolerance(key: NutrientKey, magnitude: number): number {
-  switch (key) {
-    case "energy_kcal":
-      return Math.max(1, 0.005 * magnitude);
-    case "energy_kj":
-      return Math.max(4, 0.005 * magnitude);
-    case "salt_g":
-      return magnitude >= 1 ? 0.1 : 0.01;
-    default:
-      if (magnitude >= 10) return 1;
-      if (magnitude >= 0.5) return 0.1;
-      return 0.05;
-  }
+/** Rounding step a label uses for a value of this size. */
+function roundingStep(key: NutrientKey, value: number): number {
+  if (key === "salt_g") return value >= 1 ? 0.1 : 0.01;
+  if (value >= 10) return 1;
+  if (value >= 0.5) return 0.1;
+  return 0.05;
+}
+
+function strongTolerance(key: NutrientKey, a: number, b: number): number {
+  const magnitude = Math.max(a, b);
+  if (key === "energy_kcal") return Math.max(1, 0.005 * magnitude);
+  if (key === "energy_kj") return Math.max(4, 0.005 * magnitude);
+  // Each value hides up to half its rounding step: 10 g covers 9.5–10.49, 9.3 g covers 9.25–9.349.
+  return (roundingStep(key, a) + roundingStep(key, b)) / 2;
 }
 
 function weakTolerance(key: NutrientKey, magnitude: number): number {
@@ -45,7 +46,7 @@ function weakTolerance(key: NutrientKey, magnitude: number): number {
 }
 
 export function agreesStrongly(key: NutrientKey, a: number, b: number): boolean {
-  return Math.abs(a - b) <= strongTolerance(key, Math.max(a, b)) + EPSILON;
+  return Math.abs(a - b) <= strongTolerance(key, a, b) + EPSILON;
 }
 
 export function agreesWeakly(key: NutrientKey, a: number, b: number): boolean {

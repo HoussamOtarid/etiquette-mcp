@@ -15,6 +15,20 @@ interface Cluster {
 
 const byWeightDesc = (a: Ballot, b: Ballot) => b.weight - a.weight;
 
+/**
+ * The published value with the most total weight among agreeing ballots (ties: the most trustworthy single ballot),
+ * so the result does not depend on the order in which sources answered.
+ */
+function representativeValue(ballots: Ballot[]): number {
+  const totals = new Map<number, { weight: number; best: number }>();
+  for (const b of ballots) {
+    const t = totals.get(b.value) ?? { weight: 0, best: 0 };
+    totals.set(b.value, { weight: t.weight + b.weight, best: Math.max(t.best, b.weight) });
+  }
+  const [best] = [...totals.entries()].sort((a, b) => b[1].weight - a[1].weight || b[1].best - a[1].best);
+  return best ? best[0] : (ballots[0]?.value ?? 0);
+}
+
 /** Copies of the same label (same independence key) count once, with the best weight among them. */
 function dedupe(ballots: Ballot[]): { unique: Ballot[]; collapsed: boolean } {
   const best = new Map<string, Ballot>();
@@ -114,7 +128,7 @@ export function decideNutrient(
     .slice(1)
     .flatMap((c) => c.ballots)
     .map(({ source, value, weight }) => ({ source, value, weight }));
-  const value = winner.anchor.value;
+  const value = representativeValue(winner.ballots);
 
   if (winner.ballots.length === total) {
     return {

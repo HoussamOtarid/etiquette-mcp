@@ -4,13 +4,24 @@ import { HostLimiter, type RateLimit } from "./rateLimiter.ts";
 export class HttpError extends Error {
   readonly status: number;
   readonly host: string;
+  /** Delay requested by the server's Retry-After header, when present. */
+  readonly retryAfterMs: number | undefined;
 
-  constructor(status: number, host: string) {
+  constructor(status: number, host: string, retryAfterMs?: number) {
     super(`HTTP ${status} from ${host}`);
     this.status = status;
     this.host = host;
+    this.retryAfterMs = retryAfterMs;
     this.name = "HttpError";
   }
+}
+
+function parseRetryAfter(header: string | null): number | undefined {
+  if (!header) return undefined;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  const date = Date.parse(header);
+  return Number.isNaN(date) ? undefined : Math.max(0, date - Date.now());
 }
 
 export class RateLimitedError extends Error {
@@ -38,6 +49,8 @@ export interface RequestOptions {
   headers?: Record<string, string>;
   /** Accept these statuses without throwing (e.g. 404 handled by the caller). */
   allowStatus?: number[];
+  /** Retry once on 429/5xx (default true). Callers with their own backoff turn it off. */
+  retry?: boolean;
 }
 
 export interface HttpResponse<T> {
@@ -48,6 +61,7 @@ export interface HttpResponse<T> {
 
 const RETRYABLE = new Set([429, 502, 503, 504]);
 const MAX_RETRY_DELAY_MS = 5000;
+const DEFAULT_RETRY_DELAY_MS = 1500;
 
 /**
  * Outbound HTTP for all sources. Requests are anonymous by construction: a fixed neutral User-Agent, no cookies
@@ -138,18 +152,15 @@ export class HttpClient {
         return { status: response.status, url: response.url, body: await read(response) };
       }
       await response.body?.cancel();
-      if (attempt === 0 && RETRYABLE.has(response.status)) {
-        const retryAfter = Number(response.headers.get("retry-after"));
-        const delay = Math.min(
-          MAX_RETRY_DELAY_MS,
-          Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 1500,
-        );
+      const retryAfterMs = parseRetryAfter(response.headers.get("retry-after"));
+      if (attempt === 0 && opts.retry !== false && RETRYABLE.has(response.status)) {
+        const delay = Math.min(MAX_RETRY_DELAY_MS, retryAfterMs ?? DEFAULT_RETRY_DELAY_MS);
         this.options.logger.info("http retry", { host, status: response.status, delay });
         await new Promise((r) => setTimeout(r, delay));
         continue;
       }
       this.options.logger.warn("http error", { host, status: response.status, ms });
-      throw new HttpError(response.status, host);
+      throw new HttpError(response.status, host, retryAfterMs);
     }
   }
 }
