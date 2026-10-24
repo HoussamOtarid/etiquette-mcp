@@ -13,12 +13,11 @@ import {
   type SearchQuery,
   type SourceAdapter,
 } from "./adapter.ts";
-import { BarcodeBatcher } from "./barcodeBatcher.ts";
-import { cachedSearch, setNumber } from "./shared.ts";
+import { LookupQueue } from "./lookupQueue.ts";
+import { cachedSearch } from "./shared.ts";
 
-/** API v3.6: the current version, returning the new nutrition structure (v2 is deprecated). */
+/** API v3.6, the current version (documented quotas: 15 product reads per minute). */
 export const PRODUCT_URL = "https://world.openfoodfacts.org/api/v3.6/product";
-const MAX_QUEUED_BATCH = 50;
 const SEARCH_URL = "https://search.openfoodfacts.org/search";
 const FIELDS = [
   "code",
@@ -27,7 +26,6 @@ const FIELDS = [
   "brands",
   "quantity",
   "nutrition",
-  "nutriments",
   "nutriscore_grade",
   "ingredients_text_fr",
   "ingredients_text",
@@ -45,7 +43,6 @@ interface OffProduct {
   product_name_fr?: string;
   brands?: string | string[];
   quantity?: string;
-  nutriments?: Record<string, number | string | undefined>;
   nutriscore_grade?: string;
   ingredients_text_fr?: string;
   ingredients_text?: string;
@@ -56,7 +53,7 @@ interface OffProduct {
   data_sources_tags?: string[];
   last_modified_t?: number;
   lang?: string;
-  /** New nutrition structure (API v3.5+, exports): values per `aggregated_set.per`. */
+  /** Nutrition facts: one value per nutrient, per `aggregated_set.per`, with its unit, modifier and source. */
   nutrition?: {
     aggregated_set?: {
       per?: string;
@@ -66,19 +63,7 @@ interface OffProduct {
   };
 }
 
-const NUTRIMENTS: Array<[NutrientKey, string]> = [
-  ["energy_kcal", "energy-kcal_100g"],
-  ["energy_kj", "energy-kj_100g"],
-  ["fat_g", "fat_100g"],
-  ["saturated_fat_g", "saturated-fat_100g"],
-  ["carbohydrates_g", "carbohydrates_100g"],
-  ["sugars_g", "sugars_100g"],
-  ["fiber_g", "fiber_100g"],
-  ["protein_g", "proteins_100g"],
-  ["salt_g", "salt_100g"],
-];
-
-/** Our nutrients and their ids in the new nutrition structure. */
+/** Our nutrients and their ids in Open Food Facts' nutrition facts. */
 const NUTRITION: Array<[NutrientKey, string]> = [
   ["energy_kcal", "energy-kcal"],
   ["energy_kj", "energy-kj"],
@@ -105,14 +90,11 @@ function labelValue(n: OffNutrient | undefined): NutrientValue | null {
   return { value };
 }
 
-/**
- * Reads the new nutrition structure. Returns false when the product has none (older entries, legacy responses), so
- * the caller falls back to `nutriments`. Values prepared for consumption are not the label's as-sold values.
- */
-function readNutrition(product: OffProduct, label: SourceLabel): boolean {
+/** Fills the label from the nutrition facts. Values for the prepared product are not the label's as-sold values. */
+function readNutrition(product: OffProduct, label: SourceLabel): void {
   const set = product.nutrition?.aggregated_set;
-  if (!set?.nutrients || Object.keys(set.nutrients).length === 0) return false;
-  if (set.preparation && set.preparation !== "as_sold") return true;
+  label.basis = basisFromQuantity(product.quantity, set?.per);
+  if (!set?.nutrients || (set.preparation && set.preparation !== "as_sold")) return;
   const nutrients = set.nutrients;
   for (const [key, id] of NUTRITION) {
     const value = labelValue(nutrients[id]);
@@ -127,9 +109,6 @@ function readNutrition(product: OffProduct, label: SourceLabel): boolean {
     const sodium = labelValue(nutrients.sodium);
     if (sodium) label.sodiumG = sodium.value;
   }
-  // "100g" is also OFF's default when contributors don't say, so for drinks the pack volume decides.
-  label.basis = set.per === "100ml" ? "100ml" : basisFromQuantity(product.quantity);
-  return true;
 }
 
 function brandsOf(p: OffProduct): string | null {
@@ -137,10 +116,13 @@ function brandsOf(p: OffProduct): string | null {
   return cleanText(b);
 }
 
-/** OFF stores "_100g" values per 100 ml for liquids; the pack quantity tells which applies. */
-function basisFromQuantity(quantity: string | undefined): Basis {
-  if (!quantity) return "100g";
-  return /\d\s*(?:ml|cl|dl|l)\b/i.test(quantity) ? "100ml" : "100g";
+/**
+ * Per 100 ml when the data says so or the pack is a volume: "100g" is also Open Food Facts' default when contributors
+ * don't say, so for drinks the pack decides.
+ */
+function basisFromQuantity(quantity: string | undefined, per: string | undefined): Basis {
+  if (per === "100ml") return "100ml";
+  return quantity && /\d\s*(?:ml|cl|dl|l)\b/i.test(quantity) ? "100ml" : "100g";
 }
 
 const tagsText = (tags: string[] | undefined) =>
@@ -151,14 +133,7 @@ export function parseOffProduct(product: OffProduct): Offer | null {
   if (!ean) return null;
   const url = `https://world.openfoodfacts.org/product/${ean}`;
   const label = emptyLabel("off", url);
-  if (!readNutrition(product, label)) {
-    const n = product.nutriments ?? {};
-    for (const [key, field] of NUTRIMENTS) setNumber(label.values, key, n[field]);
-    if (label.values.energy_kj === undefined && n.energy_unit === "kJ")
-      setNumber(label.values, "energy_kj", n.energy_100g);
-    if (label.values.salt_g === undefined && typeof n.sodium_100g === "number") label.sodiumG = n.sodium_100g;
-    label.basis = basisFromQuantity(product.quantity);
-  }
+  readNutrition(product, label);
   label.nutriscore = /^[a-e]$/i.test(product.nutriscore_grade ?? "")
     ? (product.nutriscore_grade ?? null)
     : null;
@@ -209,7 +184,7 @@ export function parseOffSearch(body: { hits?: OffProduct[] }): Offer[] {
 
 /**
  * Open Food Facts: open database, barcode lookup and name/brand search. Never sells anything (no prices).
- * Barcode lookups go through a batcher so that concurrent lookups share requests within the API quotas.
+ * Barcode lookups go through one queue so that concurrent lookups stay within the API quotas.
  */
 export class OpenFoodFactsAdapter implements SourceAdapter {
   readonly id = "off" as const;
@@ -218,19 +193,18 @@ export class OpenFoodFactsAdapter implements SourceAdapter {
   readonly capabilities = { text: true, ean: true };
 
   private readonly deps: AdapterDeps;
-  private readonly batcher: BarcodeBatcher<OffProduct>;
+  private readonly queue: LookupQueue<OffProduct>;
   /** Open Food Facts asks API clients to identify themselves; the public project page is given, nothing personal. */
   private readonly headers: Record<string, string>;
 
   constructor(deps: AdapterDeps) {
     this.deps = deps;
     this.headers = { "user-agent": `${deps.config.userAgent} (+${REPOSITORY_URL})` };
-    this.batcher = new BarcodeBatcher<OffProduct>(
-      (code) => this.fetchProduct(code),
-      // API v3 has no multi-barcode lookup: queued barcodes are read one by one, at the documented pace.
-      undefined,
-      { maxBatch: MAX_QUEUED_BATCH, maxRetries: 4, baseBackoffMs: 5000, maxBackoffMs: 60_000 },
-    );
+    this.queue = new LookupQueue((code) => this.fetchProduct(code), {
+      maxRetries: 4,
+      baseBackoffMs: 5000,
+      maxBackoffMs: 60_000,
+    });
   }
 
   async search(query: SearchQuery): Promise<Offer[]> {
@@ -255,7 +229,7 @@ export class OpenFoodFactsAdapter implements SourceAdapter {
 
   private async byEan(ean: string): Promise<Offer | null> {
     const { value } = await this.deps.cache.wrap<Offer>("label:off", ean, TTL.label, async () => {
-      const product = await this.batcher.lookup(ean);
+      const product = await this.queue.lookup(ean);
       return product ? parseOffProduct({ ...product, code: product.code ?? ean }) : null;
     });
     return value;

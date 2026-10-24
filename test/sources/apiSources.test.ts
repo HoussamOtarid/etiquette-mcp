@@ -41,7 +41,7 @@ describe("Open Food Facts", () => {
     });
   });
 
-  it("skips estimated and prepared values, converts units and falls back to legacy nutriments", () => {
+  it("skips estimated and prepared values and converts units", () => {
     const set = (extra: Record<string, unknown>, nutrients: Record<string, unknown>) => ({
       code: "4000000000006",
       product_name: "P",
@@ -73,20 +73,10 @@ describe("Open Food Facts", () => {
       >[0],
     );
     expect(prepared?.label?.values).toEqual({});
-    const legacy = parseOffProduct({
-      code: "4000000000006",
-      product_name: "P",
-      nutriments: { "energy-kcal_100g": 55 },
-    });
-    expect(legacy?.label?.values.energy_kcal).toEqual({ value: 55 });
   });
 
   it("reports the language of the ingredients, French first", () => {
-    const base = {
-      code: "4014500519166",
-      product_name: "Protein Pudding",
-      nutriments: { "energy-kcal_100g": 74 },
-    };
+    const base = { code: "4014500519166", product_name: "Protein Pudding" };
     const czech = parseOffProduct({
       ...base,
       ingredients_text: "mléčné bílkoviny, mléko",

@@ -335,8 +335,8 @@ export class NutritionService {
   }
 
   /**
-   * Several products in one call. All barcodes are sent to Open Food Facts up front, where concurrent lookups share
-   * requests; products are then processed a few at a time so shop queues stay within their time limits.
+   * Several products in one call. All barcodes are queued for Open Food Facts up front (its paced lookups start at
+   * once); products are then processed a few at a time so shop queues stay within their time limits.
    */
   async getLabels(input: GetLabelsInput): Promise<GetLabelsResult> {
     const items = input.products.map((p): BatchItem => (typeof p === "string" ? { product: p } : p));
