@@ -1,5 +1,7 @@
 # etiquette-mcp
 
+[![CI](https://github.com/HoussamOtarid/etiquette-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/HoussamOtarid/etiquette-mcp/actions/workflows/ci.yml)
+
 An [MCP](https://modelcontextprotocol.io) server that looks a food product up by **barcode, name or keywords** across
 several French grocery sources, self-checks each nutrition label it finds, and returns the **best-supported label**
 together with how strongly the sources agree, per-store prices and the raw labels.
