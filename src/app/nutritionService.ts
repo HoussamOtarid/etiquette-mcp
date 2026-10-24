@@ -228,6 +228,7 @@ export class NutritionService {
         last_success_at: h.lastSuccessAt,
         last_failure_at: h.lastFailureAt,
         last_failure: h.lastFailure,
+        ...(a?.localCopy ? { local_copy: a.localCopy() } : {}),
         calls_24h: h.calls24h,
         failures_24h: h.failures24h,
         p50_ms: h.p50Ms,

@@ -3,6 +3,7 @@ import type { Offer, SourceId, SourceLabel, Tier } from "../domain/types.ts";
 import type { Cache } from "../infra/cache.ts";
 import type { HttpClient } from "../infra/http.ts";
 import type { Logger } from "../infra/logger.ts";
+import type { LocalCopyStatus, OffLocalReader } from "./offLocal.ts";
 
 export interface SearchQuery {
   /** Free text: product name and/or keywords. */
@@ -32,6 +33,8 @@ export interface SourceAdapter {
   search(query: SearchQuery): Promise<Offer[]>;
   /** Fetches the label for an offer returned by `search` (may be served from `offer.label`). */
   getLabel(offer: Offer): Promise<LabelResult>;
+  /** State of a local copy of the source's data, for sources that keep one. */
+  localCopy?(): LocalCopyStatus | null;
 }
 
 export interface AdapterDeps {
@@ -39,6 +42,8 @@ export interface AdapterDeps {
   cache: Cache;
   logger: Logger;
   config: Config;
+  /** Local copy of Open Food Facts, when enabled. */
+  offLocal?: OffLocalReader;
 }
 
 /** Empty label skeleton shared by all adapters. */

@@ -14,12 +14,14 @@ import {
   type SourceAdapter,
 } from "./adapter.ts";
 import { LookupQueue } from "./lookupQueue.ts";
+import type { LocalCopyStatus } from "./offLocal.ts";
 import { cachedSearch } from "./shared.ts";
 
 /** API v3.6, the current version (documented quotas: 15 product reads per minute). */
 export const PRODUCT_URL = "https://world.openfoodfacts.org/api/v3.6/product";
 const SEARCH_URL = "https://search.openfoodfacts.org/search";
-const FIELDS = [
+/** Product fields requested from the API, and kept in the local copy. */
+export const PRODUCT_FIELDS = [
   "code",
   "product_name",
   "product_name_fr",
@@ -35,9 +37,10 @@ const FIELDS = [
   "data_sources_tags",
   "last_modified_t",
   "lang",
-].join(",");
+] as const;
+const FIELDS = PRODUCT_FIELDS.join(",");
 
-interface OffProduct {
+export interface OffProduct {
   code?: string;
   product_name?: string;
   product_name_fr?: string;
@@ -75,6 +78,9 @@ const NUTRITION: Array<[NutrientKey, string]> = [
   ["protein_g", "proteins"],
   ["salt_g", "salt"],
 ];
+
+/** Every nutrient id the parser reads (energy in kJ and sodium are fallbacks). */
+export const NUTRITION_IDS = [...NUTRITION.map(([, id]) => id), "energy", "sodium"];
 
 type OffNutrient = NonNullable<
   NonNullable<NonNullable<OffProduct["nutrition"]>["aggregated_set"]>["nutrients"]
@@ -227,7 +233,25 @@ export class OpenFoodFactsAdapter implements SourceAdapter {
     return { label: full?.label ?? null };
   }
 
+  localCopy(): LocalCopyStatus | null {
+    return this.deps.offLocal?.status() ?? null;
+  }
+
+  /** The local copy answers first; a miss (product added since the last import) or an error falls back to the API. */
+  private fromLocalCopy(ean: string): Offer | null {
+    if (!this.deps.offLocal) return null;
+    try {
+      const product = this.deps.offLocal.get(ean);
+      return product ? parseOffProduct(product) : null;
+    } catch (error) {
+      this.deps.logger.warn("off local copy: lookup failed", { error: String(error) });
+      return null;
+    }
+  }
+
   private async byEan(ean: string): Promise<Offer | null> {
+    const local = this.fromLocalCopy(ean);
+    if (local) return local;
     const { value } = await this.deps.cache.wrap<Offer>("label:off", ean, TTL.label, async () => {
       const product = await this.queue.lookup(ean);
       return product ? parseOffProduct({ ...product, code: product.code ?? ean }) : null;

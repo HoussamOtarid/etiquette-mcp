@@ -195,6 +195,8 @@ export interface SourceInfo {
   last_success_at: string | null;
   last_failure_at: string | null;
   last_failure: string | null;
+  /** Present for sources that keep a local copy of their data. */
+  local_copy?: { products: number; full_import_at: string | null; updated_at: string | null } | null;
   calls_24h: number;
   failures_24h: number;
   p50_ms: number | null;

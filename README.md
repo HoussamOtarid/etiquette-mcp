@@ -64,6 +64,11 @@ anonymous: no cookies, no accounts, and a user agent that only names the project
 Facts, which asks API clients to identify themselves). Each source is paced to its documented limits or a polite rate,
 and results are cached in SQLite.
 
+With `OFF_LOCAL_DB=true`, barcodes are answered from a local copy of the whole Open Food Facts database kept in
+`DATA_DIR` (about 4 GB, twice that while it is rebuilt), with the API as fallback for products added since the last
+update. The server builds the copy itself on first start (about an hour, in the background, answering from the API
+meanwhile), applies the daily updates and rebuilds it monthly; `list_sources` shows its state.
+
 ## Running
 
 Requires Node.js 24+.
@@ -85,10 +90,11 @@ The MCP endpoint is `POST /mcp` (streamable HTTP, stateless) with `Authorization
 | ------------------- | ------------------- | ---------------------------------------------------------------- |
 | `MCP_AUTH_TOKEN`    | (required)          | Bearer token, at least 32 characters                             |
 | `PORT`              | `3000`              |                                                                  |
-| `DATA_DIR`          | `./data`            | SQLite cache location                                            |
+| `DATA_DIR`          | `./data`            | SQLite cache and the local Open Food Facts copy                  |
 | `SOURCE_TIMEOUT_MS` | `8000`              | Time limit per source call                                       |
 | `REQUEST_BUDGET_MS` | `20000`             | Time limit per tool call; late sources keep filling the cache    |
 | `OFF_MAX_WAIT_MS`   | `120000`            | How long a tool call may wait for queued Open Food Facts lookups |
+| `OFF_LOCAL_DB`      | `false`             | Keep a local copy of Open Food Facts (see Sources)               |
 | `LOG_LEVEL`         | `info`              | `debug`, `info`, `warn`, `error`                                 |
 | `DISABLED_SOURCES`  |                     | Comma-separated source ids                                       |
 | `USER_AGENT`        | `etiquette-mcp/<v>` | Open Food Facts requests also carry the project URL              |

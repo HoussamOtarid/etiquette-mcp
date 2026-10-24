@@ -19,6 +19,7 @@ const EnvSchema = z.object({
   SOURCE_TIMEOUT_MS: z.coerce.number().int().positive().default(8000),
   REQUEST_BUDGET_MS: z.coerce.number().int().positive().default(20000),
   OFF_MAX_WAIT_MS: z.coerce.number().int().positive().default(120000),
+  OFF_LOCAL_DB: z.enum(["true", "false"]).default("false"),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
   DISABLED_SOURCES: csv,
   USER_AGENT: z.string().default(`etiquette-mcp/${VERSION}`),
@@ -32,6 +33,8 @@ export interface Config {
   requestBudgetMs: number;
   /** How long a tool call may wait for queued Open Food Facts lookups. */
   offMaxWaitMs: number;
+  /** Keep a local copy of Open Food Facts (several GB in DATA_DIR) and answer barcodes from it. */
+  offLocalDb: boolean;
   logLevel: "debug" | "info" | "warn" | "error";
   disabledSources: SourceId[];
   userAgent: string;
@@ -54,6 +57,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     sourceTimeoutMs: e.SOURCE_TIMEOUT_MS,
     requestBudgetMs: e.REQUEST_BUDGET_MS,
     offMaxWaitMs: e.OFF_MAX_WAIT_MS,
+    offLocalDb: e.OFF_LOCAL_DB === "true",
     logLevel: e.LOG_LEVEL,
     disabledSources: e.DISABLED_SOURCES as SourceId[],
     userAgent: e.USER_AGENT,

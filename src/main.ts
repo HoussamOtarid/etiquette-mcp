@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { NutritionService } from "./app/nutritionService.ts";
+import { OffSync } from "./app/offSync.ts";
 import { loadConfig } from "./config.ts";
 import { Cache } from "./infra/cache.ts";
 import { HealthTracker } from "./infra/health.ts";
@@ -7,6 +8,7 @@ import { HttpClient } from "./infra/http.ts";
 import { createLogger } from "./infra/logger.ts";
 import { createHttpServer } from "./mcp/http.ts";
 import { KazidomiAdapter } from "./sources/kazidomi.ts";
+import { OffLocalStore } from "./sources/offLocal.ts";
 import { createAdapters, DEFAULT_LIMIT, HOST_LIMITS } from "./sources/registry.ts";
 
 const PURGE_INTERVAL_MS = 3600_000;
@@ -24,7 +26,8 @@ function main(): void {
     maxQueueWaitMs: config.requestBudgetMs * 2,
     logger,
   });
-  const adapters = createAdapters({ http, cache, logger, config });
+  const offLocal = config.offLocalDb ? new OffLocalStore(config.dataDir) : undefined;
+  const adapters = createAdapters({ http, cache, logger, config, offLocal });
   const service = new NutritionService(adapters, { cache, health, config, logger });
   const server = createHttpServer({ service, authToken: config.authToken, logger });
 
@@ -37,6 +40,8 @@ function main(): void {
     ?.ensureIndex()
     .catch((error) => logger.warn("kazidomi index warm-up failed", { error: String(error) }));
 
+  if (offLocal) new OffSync(offLocal, { dataDir: config.dataDir, logger }).start();
+
   const purge = setInterval(() => {
     const removed = cache.purgeExpired();
     if (removed > 0) logger.info("cache purged", { removed });
@@ -47,6 +52,7 @@ function main(): void {
     logger.info("shutting down", { signal });
     server.close(() => {
       cache.close();
+      offLocal?.close();
       process.exit(0);
     });
     setTimeout(() => process.exit(0), 5000).unref();
