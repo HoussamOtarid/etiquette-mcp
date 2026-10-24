@@ -14,7 +14,6 @@ describe("config", () => {
     expect(c).toMatchObject({
       port: 3000,
       requestBudgetMs: 20000,
-      labelleVieAlternate: "1-9",
       disabledSources: [],
     });
   });

@@ -19,7 +19,6 @@ const EnvSchema = z.object({
   REQUEST_BUDGET_MS: z.coerce.number().int().positive().default(20000),
   OFF_MAX_WAIT_MS: z.coerce.number().int().positive().default(120000),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
-  LBV_ALTERNATE: z.string().default("1-9"),
   DISABLED_SOURCES: csv,
   USER_AGENT: z.string().default("etiquette-mcp/0.1"),
 });
@@ -33,7 +32,6 @@ export interface Config {
   /** How long a tool call may wait for queued Open Food Facts lookups. */
   offMaxWaitMs: number;
   logLevel: "debug" | "info" | "warn" | "error";
-  labelleVieAlternate: string;
   disabledSources: SourceId[];
   userAgent: string;
 }
@@ -56,7 +54,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     requestBudgetMs: e.REQUEST_BUDGET_MS,
     offMaxWaitMs: e.OFF_MAX_WAIT_MS,
     logLevel: e.LOG_LEVEL,
-    labelleVieAlternate: e.LBV_ALTERNATE,
     disabledSources: e.DISABLED_SOURCES as SourceId[],
     userAgent: e.USER_AGENT,
   };

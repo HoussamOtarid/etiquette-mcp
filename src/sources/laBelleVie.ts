@@ -16,6 +16,8 @@ import { parseTextLabel } from "./textLabel.ts";
 const SEARCH = "https://search.deleev.com/multi-go/";
 const INDEX = "prod_products_ecommerce";
 const SITE = "https://www.labellevie.com";
+/** Price and stock zone the search API requires: the shop's own default, used for every request. */
+const ZONE = "1-9";
 
 interface Alternate {
   price?: number;
@@ -120,13 +122,12 @@ export class LaBelleVieAdapter implements SourceAdapter {
   async search(query: SearchQuery): Promise<Offer[]> {
     const q = query.ean ?? query.text;
     if (!q) return [];
-    const alternate = this.deps.config.labelleVieAlternate;
     const offers = await cachedSearch(this.deps, this.id, query, async () => {
       // Anonymous search: the shop's own default zone, never a user id.
       const res = await this.deps.http.postJson<{ responses?: Array<{ hits?: Hit[] | null }> }>(SEARCH, {
-        requests: [{ indexName: INDEX, q, alternate, perPage: Math.max(query.limit, 3), page: 1 }],
+        requests: [{ indexName: INDEX, q, alternate: ZONE, perPage: Math.max(query.limit, 3), page: 1 }],
       });
-      return parseLaBelleVieSearch(res.body, alternate).slice(0, query.limit);
+      return parseLaBelleVieSearch(res.body, ZONE).slice(0, query.limit);
     });
     return matchingEan(offers, query.ean);
   }

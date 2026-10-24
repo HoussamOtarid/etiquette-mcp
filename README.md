@@ -80,7 +80,6 @@ The MCP endpoint is `POST /mcp` (streamable HTTP, stateless) with `Authorization
 | `REQUEST_BUDGET_MS` | `20000`             | Time limit per tool call; late sources keep filling the cache    |
 | `OFF_MAX_WAIT_MS`   | `120000`            | How long a tool call may wait for queued Open Food Facts lookups |
 | `LOG_LEVEL`         | `info`              | `debug`, `info`, `warn`, `error`                                 |
-| `LBV_ALTERNATE`     | `1-9`               | La Belle Vie price/stock zone                                    |
 | `DISABLED_SOURCES`  |                     | Comma-separated source ids                                       |
 | `USER_AGENT`        | `etiquette-mcp/0.1` |                                                                  |
 
