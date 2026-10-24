@@ -1,4 +1,4 @@
-# nutrition-mcp
+# etiquette-mcp
 
 An [MCP](https://modelcontextprotocol.io) server that looks a food product up by **barcode, name or keywords** across
 several French grocery sources, self-checks each nutrition label it finds, and returns the **best-supported label**
@@ -67,7 +67,7 @@ The MCP endpoint is `POST /mcp` (streamable HTTP, stateless) with `Authorization
 | `LOG_LEVEL`         | `info`              | `debug`, `info`, `warn`, `error`                              |
 | `LBV_ALTERNATE`     | `1-9`               | La Belle Vie price/stock zone                                 |
 | `DISABLED_SOURCES`  |                     | Comma-separated source ids                                    |
-| `USER_AGENT`        | `nutrition-mcp/0.1` |                                                               |
+| `USER_AGENT`        | `etiquette-mcp/0.1` |                                                               |
 
 ## Development
 

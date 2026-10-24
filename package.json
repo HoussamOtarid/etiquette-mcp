@@ -1,5 +1,5 @@
 {
-  "name": "nutrition-mcp",
+  "name": "etiquette-mcp",
   "version": "0.1.0",
   "private": true,
   "description": "MCP server that looks up a food product across several French grocery sources and returns the best-supported nutrition label with agreement indicators.",

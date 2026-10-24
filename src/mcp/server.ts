@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { NutritionService } from "../app/nutritionService.ts";
 import { SOURCE_IDS } from "../domain/types.ts";
 
-export const SERVER_INFO = { name: "nutrition-mcp", version: "0.1.0" } as const;
+export const SERVER_INFO = { name: "etiquette-mcp", version: "0.1.0" } as const;
 
 const readOnly = {
   readOnlyHint: true,

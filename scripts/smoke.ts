@@ -25,7 +25,7 @@ async function main(): Promise<void> {
   const config = loadConfig({
     ...process.env,
     MCP_AUTH_TOKEN: process.env.MCP_AUTH_TOKEN ?? "smoke-test-token-not-used-for-anything",
-    DATA_DIR: process.env.DATA_DIR ?? mkdtempSync(join(tmpdir(), "nutrition-smoke-")),
+    DATA_DIR: process.env.DATA_DIR ?? mkdtempSync(join(tmpdir(), "etiquette-smoke-")),
     REQUEST_BUDGET_MS: process.env.REQUEST_BUDGET_MS ?? "45000",
     SOURCE_TIMEOUT_MS: process.env.SOURCE_TIMEOUT_MS ?? "30000",
   });

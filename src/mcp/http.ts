@@ -54,7 +54,7 @@ export function createHttpServer({ service, authToken, logger }: HttpServerOptio
         res,
         401,
         { error: "unauthorized" },
-        { "www-authenticate": 'Bearer realm="nutrition-mcp"' },
+        { "www-authenticate": 'Bearer realm="etiquette-mcp"' },
       );
     }
     if (req.method !== "POST") {

@@ -1,7 +1,7 @@
 services:
-  nutrition-mcp:
+  etiquette-mcp:
     build: .
-    image: nutrition-mcp:local
+    image: etiquette-mcp:local
     restart: unless-stopped
     env_file: .env
     ports:

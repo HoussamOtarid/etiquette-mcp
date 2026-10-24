@@ -20,7 +20,7 @@ const EnvSchema = z.object({
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
   LBV_ALTERNATE: z.string().default("1-9"),
   DISABLED_SOURCES: csv,
-  USER_AGENT: z.string().default("nutrition-mcp/0.1"),
+  USER_AGENT: z.string().default("etiquette-mcp/0.1"),
 });
 
 export interface Config {
