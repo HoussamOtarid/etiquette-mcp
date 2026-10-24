@@ -45,10 +45,20 @@ export interface ProductView {
   /** Relevance to the query (text searches only). */
   score?: number;
   label_preview?: LabelPreview;
-  offers: OfferView[];
+  /** Stores selling it with price and link (left out in compact results, which give `stores` instead). */
+  offers?: OfferView[];
+  stores?: SourceId[];
 }
 
-export interface FindProductResult {
+/** Hints about how well text-search results match the query. */
+export interface MatchHints {
+  /** The best product scores below 0.5: probably not what was asked for. */
+  no_good_match?: true;
+  /** The `brand` given matched no product: results are other brands. */
+  requested_brand_found?: false;
+}
+
+export interface FindProductResult extends MatchHints {
   query_kind: "barcode" | "text";
   products: ProductView[];
   sources: Partial<Record<SourceId, SourceStatus>>;
@@ -58,9 +68,10 @@ export interface FindProductResult {
 export interface NutrientView {
   value: number | null;
   agreement: Agreement;
-  sources_agree: number;
-  sources_total: number;
-  supporting: SourceId[];
+  /** Left out in compact results. */
+  sources_agree?: number;
+  sources_total?: number;
+  supporting?: SourceId[];
   qualifier?: Qualifier;
   dissent?: Array<{ source: SourceId; value: number }>;
   best_guess?: number;
@@ -90,16 +101,25 @@ export type FlatValues = Partial<Record<NutrientKey | "sodium_g", number | null>
 /** The decided label as flat numbers, ready to store: per 100 g/ml, and per pack when the pack size is known. */
 export interface ReadyToApply {
   basis: Basis;
+  /** null for a nutrient the sources disagree on (see conflicts). */
   per_100: FlatValues;
   qualifiers: Partial<Record<NutrientKey, Qualifier>>;
   pack: PackSize | null;
   per_pack: FlatValues | null;
+  /** Nutrients left null because sources disagree, with each source's value and the most trusted one. */
+  conflicts?: Array<{
+    nutrient: NutrientKey;
+    values: Array<{ source: SourceId; value: number }>;
+    best_guess: number | null;
+  }>;
 }
 
-export interface GetLabelResult {
+export interface GetLabelResult extends MatchHints {
   /** "incomplete": some sources did not answer, so an empty or partial result is not final (see retry_after_s). */
   status: "found" | "ambiguous" | "not_found" | "incomplete";
   retry_after_s?: number;
+  /** Several products matched the description and compare_to picked the only one whose label agrees. */
+  resolved_by?: "compare_to";
   product: ProductView | null;
   label: {
     basis: Basis;
@@ -118,10 +138,10 @@ export interface GetLabelResult {
     flag_details: Array<{ flag: string; source: SourceId; nutrient?: NutrientKey; detail?: string }>;
   } | null;
   advice: string;
-  ingredients: { text: string; source: SourceId; lang: string | null } | null;
-  allergens: { text: string; source: SourceId } | null;
-  traces: { text: string; source: SourceId } | null;
-  offers: OfferView[];
+  ingredients?: { text: string; source: SourceId; lang: string | null } | null;
+  allergens?: { text: string; source: SourceId } | null;
+  traces?: { text: string; source: SourceId } | null;
+  offers?: OfferView[];
   per_source?: PerSourceView[];
   /** Top matches when the query does not designate a single product. */
   candidates?: ProductView[];
@@ -146,7 +166,7 @@ export interface PriceView {
   in_stock: boolean | null;
 }
 
-export interface ComparePricesResult {
+export interface ComparePricesResult extends MatchHints {
   status: "found" | "ambiguous" | "not_found" | "incomplete";
   retry_after_s?: number;
   product: ProductView | null;

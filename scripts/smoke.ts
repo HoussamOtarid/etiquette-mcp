@@ -56,7 +56,7 @@ async function main(): Promise<void> {
       (r.confidence?.overall ?? "-").padEnd(6),
       `labels=${r.confidence?.sources_with_label ?? 0}`,
       `kcal=${n?.energy_kcal?.value ?? "-"}(${n?.energy_kcal?.agreement ?? "-"})`,
-      `offers=${r.offers.map((o) => o.source).join(",") || "-"}`,
+      `offers=${(r.offers ?? []).map((o) => o.source).join(",") || "-"}`,
       `flags=${r.confidence?.flags.join(",") || "-"}`,
       `${Date.now() - started}ms`,
     ];

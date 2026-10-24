@@ -44,3 +44,27 @@ export function compareWithLabel(
   else verdict = verdicts.includes("close") ? "close" : "match";
   return { verdict, nutrients };
 }
+
+const PREVIEW_KEYS = ["energy_kcal", "protein_g", "carbohydrates_g", "fat_g"] as const;
+const MIN_COMPARED = 2;
+
+/**
+ * How a candidate's macro preview compares with the expected values: "match" (within label rounding) or "close"
+ * (within label tolerance) on at least two macros, or null.
+ */
+export function previewVerdict(
+  expected: ExpectedValues,
+  preview: Partial<Record<(typeof PREVIEW_KEYS)[number], number | null>>,
+): "match" | "close" | null {
+  const label: Partial<Record<NutrientKey, { value: number | null }>> = {};
+  const compared: ExpectedValues = {};
+  for (const key of PREVIEW_KEYS) {
+    const value = preview[key];
+    if (expected[key] === undefined || value === null || value === undefined) continue;
+    label[key] = { value };
+    compared[key] = expected[key];
+  }
+  if (Object.keys(compared).length < MIN_COMPARED) return null;
+  const { verdict } = compareWithLabel(compared, label);
+  return verdict === "match" || verdict === "close" ? verdict : null;
+}

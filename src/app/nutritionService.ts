@@ -15,8 +15,17 @@ import type { Cache } from "../infra/cache.ts";
 import type { HealthTracker } from "../infra/health.ts";
 import type { Logger } from "../infra/logger.ts";
 import type { SourceAdapter } from "../sources/adapter.ts";
-import { compareWithLabel, type ExpectedValues } from "./compare.ts";
-import { labelSection, offerView, perSourceViews, priceView, productView, readyToApply } from "./present.ts";
+import { compareWithLabel, type ExpectedValues, previewVerdict } from "./compare.ts";
+import {
+  compactLabelResult,
+  labelPreview,
+  labelSection,
+  offerView,
+  perSourceViews,
+  priceView,
+  productView,
+  readyToApply,
+} from "./present.ts";
 import { rankByPrice, spreadOf } from "./prices.ts";
 import { callSource, mergeStatus } from "./sourceCall.ts";
 import type {
@@ -24,6 +33,7 @@ import type {
   FindProductResult,
   GetLabelResult,
   GetLabelsResult,
+  MatchHints,
   SourceInfo,
   SourceStatus,
 } from "./types.ts";
@@ -42,12 +52,22 @@ export interface GetLabelInput {
   sources?: SourceId[];
   includeRaw?: boolean;
   compareTo?: ExpectedValues;
+  /** Leave out offers, per-source labels, ingredients, variants and similar products. */
+  compact?: boolean;
+}
+
+export interface BatchItem {
+  product: string;
+  brand?: string;
+  compareTo?: ExpectedValues;
 }
 
 export interface GetLabelsInput {
-  products: string[];
+  products: Array<string | BatchItem>;
   sources?: SourceId[];
   includeRaw?: boolean;
+  /** Default true. */
+  compact?: boolean;
 }
 
 export interface ComparePricesInput {
@@ -66,6 +86,10 @@ type Resolution =
 interface Statuses {
   sources: Partial<Record<SourceId, SourceStatus>>;
   notes: string[];
+  /** Score of the best text-search result. */
+  topScore?: number;
+  /** The brand given matched no product. */
+  brandMissing?: boolean;
 }
 
 export interface ServiceDeps {
@@ -81,6 +105,9 @@ const MAX_NAME_QUERIES = 4;
 const MAX_EAN_ENRICHMENTS = 5;
 const RETRY_RATE_LIMITED_S = 30;
 const RETRY_DEFAULT_S = 15;
+const GOOD_MATCH_SCORE = 0.5;
+/** Extra time spent fetching labels to preview candidates; what is late is left out (and cached for next time). */
+const PREVIEW_WAIT_MS = 8000;
 
 /** A label that does not state its basis gets one from the pack unit (ml → 100 ml, g → 100 g), marked as inferred. */
 export function withInferredBasis(label: SourceLabel, packText: string | null): SourceLabel {
@@ -229,12 +256,14 @@ export class NutritionService {
     }
     const top = (await this.rankedForText(input, adapters, deadline, status)).slice(0, limit);
     this.remember(top);
+    await this.addPreviews(top, adapters, deadline);
     if (top.some((g) => g.match === "single_offer" && !g.ean))
       status.notes.push(
         "Products found in a single store without a barcode cannot be cross-checked by barcode.",
       );
     return {
       query_kind: "text",
+      ...this.hints(status),
       products: top.map((g) => productView(g, { tierOf: this.tierOf, score: g.score })),
       sources: status.sources,
       notes: status.notes,
@@ -242,15 +271,46 @@ export class NutritionService {
   }
 
   async getLabel(input: GetLabelInput): Promise<GetLabelResult> {
+    const result = await this.fullLabel(input);
+    return input.compact ? compactLabelResult(result) : result;
+  }
+
+  private async fullLabel(input: GetLabelInput): Promise<GetLabelResult> {
     const deadline = Date.now() + this.deps.config.requestBudgetMs;
     const status: Statuses = { sources: {}, notes: [] };
     const adapters = this.selected(input.sources);
-    const resolution = await this.resolve(input.product, input.brand, adapters, deadline, status);
+    let resolution = await this.resolve(input.product, input.brand, adapters, deadline, status);
+    let resolvedBy: GetLabelResult["resolved_by"];
 
-    if (resolution.kind === "none") return this.notFoundOrIncomplete(status, resolution.advice);
+    if (resolution.kind === "ambiguous" && input.compareTo) {
+      const candidates = resolution.ranked.slice(0, MAX_RESULTS);
+      const verdicts = candidates.map((g) => {
+        const preview = labelPreview(g, this.tierOf);
+        return { g, verdict: preview ? previewVerdict(input.compareTo ?? {}, preview) : null };
+      });
+      // An exact match (within rounding) wins; values only within label tolerance must single out one product.
+      const matching = verdicts.filter((v) => v.verdict === "match");
+      const close = verdicts.filter((v) => v.verdict === "close");
+      const picked =
+        matching.length === 1
+          ? matching[0]?.g
+          : matching.length === 0 && close.length === 1
+            ? close[0]?.g
+            : undefined;
+      if (picked) {
+        resolution = { kind: "group", group: picked, ranked: resolution.ranked };
+        resolvedBy = "compare_to";
+        status.notes.push(
+          `${candidates.length} products match the description; picked "${picked.name}", the only one whose label agrees with compare_to.`,
+        );
+      }
+    }
+    if (resolution.kind === "none")
+      return { ...this.notFoundOrIncomplete(status, resolution.advice), ...this.hints(status) };
     if (resolution.kind === "ambiguous") {
       return {
         ...this.empty("ambiguous", status, AMBIGUOUS_ADVICE),
+        ...this.hints(status),
         candidates: resolution.ranked.slice(0, MAX_RESULTS).map((g) => this.view(g)),
       };
     }
@@ -261,6 +321,8 @@ export class NutritionService {
     const product = productView(group, { tierOf: this.tierOf });
     const result: GetLabelResult = {
       status: "found",
+      ...(resolvedBy ? { resolved_by: resolvedBy } : {}),
+      ...this.hints(status),
       product,
       ...labelSection(decided),
       ready_to_apply: readyToApply(decided, product.pack),
@@ -299,9 +361,10 @@ export class NutritionService {
    * requests; products are then processed a few at a time so shop queues stay within their time limits.
    */
   async getLabels(input: GetLabelsInput): Promise<GetLabelsResult> {
+    const items = input.products.map((p): BatchItem => (typeof p === "string" ? { product: p } : p));
     const off = this.selected(input.sources).find((a) => a.id === "off");
     if (off) {
-      for (const product of input.products) {
+      for (const { product } of items) {
         const ean = product.startsWith("ean:")
           ? normalizeEan(product.slice(4))
           : looksLikeBarcode(product)
@@ -310,9 +373,14 @@ export class NutritionService {
         if (ean) off.search({ ean, limit: 1 }).catch(() => undefined);
       }
     }
-    const results = await mapWithConcurrency(input.products, BATCH_CONCURRENCY, async (product) => ({
-      input: product,
-      ...(await this.getLabel({ product, sources: input.sources, includeRaw: input.includeRaw ?? false })),
+    const results = await mapWithConcurrency(items, BATCH_CONCURRENCY, async (item) => ({
+      input: item.product,
+      ...(await this.getLabel({
+        ...item,
+        sources: input.sources,
+        includeRaw: input.includeRaw ?? false,
+        compact: input.compact ?? true,
+      })),
     }));
     return { results };
   }
@@ -324,10 +392,12 @@ export class NutritionService {
     const base = { sources: status.sources, notes: status.notes } as const;
 
     const resolution = await this.resolve(input.product, input.brand, adapters, deadline, status);
-    if (resolution.kind === "none") return { ...base, ...this.priceMiss(status), product: null };
+    if (resolution.kind === "none")
+      return { ...base, ...this.priceMiss(status), ...this.hints(status), product: null };
     if (resolution.kind === "ambiguous") {
       return {
         ...base,
+        ...this.hints(status),
         status: "ambiguous",
         product: null,
         candidates: resolution.ranked.slice(0, MAX_RESULTS).map((g) => this.view(g)),
@@ -339,6 +409,7 @@ export class NutritionService {
     if (views.length === 0) status.notes.push("No store lists a price for this product.");
     return {
       ...base,
+      ...this.hints(status),
       status: "found",
       product: productView(group, { tierOf: this.tierOf }),
       offers: views,
@@ -377,7 +448,10 @@ export class NutritionService {
     this.remember(ranked.slice(0, MAX_RESULTS));
     const [first] = ranked;
     if (!first) return { kind: "none", advice: NO_MATCH_ADVICE };
-    if (!isUnambiguous(ranked)) return { kind: "ambiguous", ranked };
+    if (!isUnambiguous(ranked)) {
+      await this.addPreviews(ranked.slice(0, MAX_RESULTS), adapters, deadline);
+      return { kind: "ambiguous", ranked };
+    }
     status.notes.push(`Resolved the query to "${first.name}"${first.brand ? ` (${first.brand})` : ""}.`);
     return { kind: "group", group: first, ranked };
   }
@@ -391,6 +465,10 @@ export class NutritionService {
     const groups = await this.groupsForText(input, adapters, deadline, status);
     const size = input.size ?? (parseQuantity(input.query) ? input.query : undefined);
     let brand = input.brand;
+    if (brand && !groups.some((g) => sameBrand(g.brand, brand) === true)) {
+      status.brandMissing = true;
+      status.notes.push(`No product of brand ${brand} was found; the results are other brands.`);
+    }
     if (!brand) {
       brand =
         brandInQuery(
@@ -399,7 +477,13 @@ export class NutritionService {
         ) ?? undefined;
       if (brand) status.notes.push(`Brand taken from the query: ${brand}.`);
     }
-    return relevantGroups(rankGroups(groups, { query: input.query, brand, size }), input.query, brand);
+    const ranked = relevantGroups(
+      rankGroups(groups, { query: input.query, brand, size }),
+      input.query,
+      brand,
+    );
+    if (ranked[0]) status.topScore = ranked[0].score;
+    return ranked;
   }
 
   private remember(groups: ProductGroup[]): void {
@@ -408,6 +492,58 @@ export class NutritionService {
 
   private view(g: RankedGroup | ProductGroup) {
     return productView(g, { tierOf: this.tierOf, score: "score" in g ? (g.score as number) : undefined });
+  }
+
+  private hints(status: Statuses): MatchHints {
+    const hints: MatchHints = {};
+    if (status.topScore !== undefined && status.topScore < GOOD_MATCH_SCORE) hints.no_good_match = true;
+    if (status.brandMissing) hints.requested_brand_found = false;
+    return hints;
+  }
+
+  /**
+   * Fetches a label for products that have none yet, so they can carry a macro preview: from Open Food Facts by
+   * barcode (concurrent lookups share one request) and from the best store's product page, in parallel. Failures and
+   * late answers are ignored: previews are a convenience, not part of the result's completeness.
+   */
+  private async addPreviews(
+    groups: ProductGroup[],
+    adapters: SourceAdapter[],
+    deadline: number,
+  ): Promise<void> {
+    const until = Math.min(deadline, Date.now() + PREVIEW_WAIT_MS);
+    const off = adapters.find((a) => a.id === "off" && a.capabilities.ean);
+    const missing = groups.filter((g) => !labelPreview(g, this.tierOf));
+    if (missing.length === 0) return;
+    const fromOff = async (g: ProductGroup) => {
+      if (!g.ean || !off) return;
+      const ean = g.ean;
+      const outcome = await callSource(
+        "off",
+        () => off.search({ ean, limit: 1 }),
+        until - Date.now(),
+        this.deps.health,
+      );
+      const found = outcome.status === "ok" ? outcome.value.find((o) => o.label) : undefined;
+      if (!found) return;
+      const existing = g.offers.find((o) => o.source === "off");
+      if (existing) existing.label = found.label;
+      else g.offers.push(found);
+    };
+    const fromStore = async (g: ProductGroup) => {
+      const offer = g.offers.find((o) => this.byId.has(o.source) && o.source !== "off");
+      const adapter = offer && this.byId.get(offer.source);
+      if (!offer || !adapter) return;
+      const outcome = await callSource(
+        offer.source,
+        () => adapter.getLabel(offer),
+        Math.min(until - Date.now(), this.remaining(deadline, offer.source)),
+        this.deps.health,
+      );
+      if (outcome.status === "ok" && outcome.value.label) offer.label = outcome.value.label;
+    };
+    await Promise.all(missing.flatMap((g) => [fromOff(g), fromStore(g)]));
+    this.remember(groups);
   }
 
   private priceMiss(status: Statuses): Pick<ComparePricesResult, "status" | "retry_after_s"> {

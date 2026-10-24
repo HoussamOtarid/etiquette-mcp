@@ -145,9 +145,16 @@ function scale(values: FlatValues, factor: number): FlatValues {
 export function readyToApply(d: DecidedLabel, pack: PackSize | null): ReadyToApply {
   const per100: FlatValues = {};
   const qualifiers: ReadyToApply["qualifiers"] = {};
+  const conflicts: NonNullable<ReadyToApply["conflicts"]> = [];
   for (const [key, n] of Object.entries(d.nutrients) as Array<[NutrientKey, NutrientDecision]>) {
     per100[key] = n.value === null ? null : displayValue(key, n.value);
     if (n.qualifier) qualifiers[key] = n.qualifier;
+    if (n.agreement === "conflict")
+      conflicts.push({
+        nutrient: key,
+        values: n.dissent.map(({ source, value }) => ({ source, value: displayValue(key, value) })),
+        best_guess: n.bestGuess === undefined ? null : displayValue(key, n.bestGuess),
+      });
   }
   const salt = per100.salt_g;
   if (salt !== undefined)
@@ -157,12 +164,48 @@ export function readyToApply(d: DecidedLabel, pack: PackSize | null): ReadyToApp
     (d.basis === "100g/100ml" ||
       (d.basis === "100g" && pack.unit === "g") ||
       (d.basis === "100ml" && pack.unit === "ml"));
-  return {
+  const result: ReadyToApply = {
     basis: d.basis,
     per_100: per100,
     qualifiers,
     pack,
     per_pack: compatible && pack ? scale(per100, pack.amount / 100) : null,
+  };
+  if (conflicts.length > 0) result.conflicts = conflicts;
+  return result;
+}
+
+/** A product without its offers list: just the stores selling it. */
+export function compactProduct(p: ProductView): ProductView {
+  const { offers, ...rest } = p;
+  return { ...rest, stores: [...new Set((offers ?? []).map((o) => o.source))] };
+}
+
+/**
+ * The label without bulky parts: offers (stores only), per-source labels, ingredients, allergens, traces, variants
+ * and similar products.
+ */
+export function compactLabelResult(r: GetLabelResult): GetLabelResult {
+  const { offers, per_source, ingredients, allergens, traces, variants, similar_products, ...rest } = r;
+  const label = r.label && {
+    ...r.label,
+    nutrients: Object.fromEntries(
+      Object.entries(r.label.nutrients).map(([key, n]) => [
+        key,
+        {
+          value: n.value,
+          agreement: n.agreement,
+          ...(n.qualifier ? { qualifier: n.qualifier } : {}),
+          ...(n.best_guess !== undefined ? { best_guess: n.best_guess } : {}),
+        },
+      ]),
+    ),
+  };
+  return {
+    ...rest,
+    label,
+    product: r.product ? compactProduct(r.product) : null,
+    ...(r.candidates ? { candidates: r.candidates.map(compactProduct) } : {}),
   };
 }
 

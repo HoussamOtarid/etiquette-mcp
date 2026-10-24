@@ -131,9 +131,117 @@ describe("presentation", () => {
     expect(ready.per_pack).toMatchObject({ energy_kcal: 152, protein_g: 20, sodium_g: 0.16 });
     expect(readyToApply(d, { amount: 500, unit: "ml" }).per_pack).toBeNull();
   });
+
+  it("lists nutrients the sources disagree on instead of guessing them", () => {
+    const d = decideLabel({
+      labels: [label("biocoop", 480, 20, 66, 6), label("naturalia", 480, 20, 66, 6)].map((l, i) => ({
+        ...l,
+        values: { ...l.values, saturated_fat_g: { value: i === 0 ? 2 : 0 } },
+      })),
+      productName: "Pétales paprika fumé",
+      tierOf: (s) => (s === "biocoop" ? "B" : "C"),
+    });
+    const ready = readyToApply(d, null);
+    expect(ready.per_100.saturated_fat_g).toBeNull();
+    expect(ready.conflicts).toEqual([
+      {
+        nutrient: "saturated_fat_g",
+        values: [
+          { source: "biocoop", value: 2 },
+          { source: "naturalia", value: 0 },
+        ],
+        best_guess: 2,
+      },
+    ]);
+    expect(ready.per_100.energy_kcal).toBe(480);
+  });
 });
 
 describe("service features", () => {
+  const yogurts = (): SourceAdapter => ({
+    id: "lafourche",
+    tier: "A",
+    displayName: "lafourche",
+    capabilities: { text: true, ean: false },
+    search: async () => [
+      offer("lafourche", "Yaourt nature brebis 4x125g", { brand: "Y" }),
+      offer("lafourche", "Yaourt nature vache 4x125g", { brand: "Y" }),
+    ],
+    getLabel: async (o) => ({
+      label: o.name.includes("brebis")
+        ? label("lafourche", 95, 6, 4.5, 5.2)
+        : label("lafourche", 60, 3.4, 4.6, 3.3),
+    }),
+  });
+
+  it("previews the label of every candidate and picks the one matching compare_to", async () => {
+    const svc = service([yogurts()]);
+    const ambiguous = await svc.getLabel({ product: "yaourt nature" });
+    expect(ambiguous.status).toBe("ambiguous");
+    expect(ambiguous.candidates?.map((c) => c.label_preview?.energy_kcal)).toEqual([95, 60]);
+
+    const picked = await svc.getLabel({
+      product: "yaourt nature",
+      compareTo: { energy_kcal: 96, protein_g: 5.2 },
+    });
+    expect(picked).toMatchObject({ status: "found", resolved_by: "compare_to" });
+    expect(picked.product?.name).toBe("Yaourt nature brebis 4x125g");
+
+    const none = await svc.getLabel({
+      product: "yaourt nature",
+      compareTo: { energy_kcal: 200, protein_g: 10 },
+    });
+    expect(none.status).toBe("ambiguous");
+  });
+
+  it("prefers the candidate matching compare_to exactly over one within label tolerance", async () => {
+    const pasta: SourceAdapter = {
+      ...yogurts(),
+      search: async () => [
+        offer("lafourche", "Macaronis complets 500g", { brand: "P" }),
+        offer("lafourche", "Macaronis demi-complets 500g", { brand: "P" }),
+      ],
+      getLabel: async (o) => ({
+        label: o.name.includes("demi")
+          ? label("lafourche", 358, 1.9, 71.6, 10.9)
+          : label("lafourche", 354, 1.8, 67.5, 12.6),
+      }),
+    };
+    const result = await service([pasta]).getLabel({
+      product: "macaronis",
+      compareTo: { energy_kcal: 354, carbohydrates_g: 67.5, protein_g: 12.6 },
+    });
+    expect(result).toMatchObject({ status: "found", resolved_by: "compare_to" });
+    expect(result.product?.name).toBe("Macaronis complets 500g");
+  });
+
+  it("takes per-item compare_to in get_labels and returns compact results by default", async () => {
+    const result = await service([yogurts()]).getLabels({
+      products: [{ product: "yaourt nature", compareTo: { energy_kcal: 60, fat_g: 3.4 } }],
+    });
+    const [first] = result.results;
+    expect(first).toMatchObject({ input: "yaourt nature", status: "found", resolved_by: "compare_to" });
+    expect(first?.product).toMatchObject({ name: "Yaourt nature vache 4x125g", stores: ["lafourche"] });
+    expect(first?.product?.offers).toBeUndefined();
+    expect(first?.offers).toBeUndefined();
+    expect(first?.per_source).toBeUndefined();
+    expect(first?.ready_to_apply?.per_100.energy_kcal).toBe(60);
+  });
+
+  it("flags a missing brand and weak matches", async () => {
+    const shop = fake("naturalia", "C", () => [
+      offer("naturalia", "Chocolat noir à l'orange", { brand: "Côte d'Or", ean: "7622210000001" }),
+    ]);
+    const result = await service([shop]).findProduct({
+      query: "jus d'orange pressée",
+      brand: "Alain Milliat",
+    });
+    expect(result).toMatchObject({ no_good_match: true, requested_brand_found: false });
+    expect(result.notes).toContain(
+      "No product of brand Alain Milliat was found; the results are other brands.",
+    );
+  });
+
   it("uses a brand written in the query and drops unrelated products", async () => {
     const shops = fake("labellevie", "C", () => [
       offer("labellevie", "Steak haché pur bœuf 5%", { brand: "Bonval", ean: "3760099539001" }),

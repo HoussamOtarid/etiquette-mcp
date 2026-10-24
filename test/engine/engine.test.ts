@@ -270,6 +270,11 @@ describe("decision", () => {
     expect(d.confidence.independentSources).toBe(1);
     expect(d.confidence.flags).toContain("copied_label_collapsed");
     expect(d.nutrients.fat_g?.agreement).toBe("single");
+    expect(d.confidence.flagDetails).toContainEqual({
+      flag: "copied_label_collapsed",
+      source: "labellevie",
+      detail: "same label as off",
+    });
   });
 
   it("fills gaps from other sources (Tomme)", () => {

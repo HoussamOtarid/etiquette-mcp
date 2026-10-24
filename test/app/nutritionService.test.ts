@@ -127,7 +127,7 @@ describe("NutritionService", () => {
     const result = await service([off, naturalia, lafourche, lavieclaire]).getLabel({ product: EAN });
     expect(result.status).toBe("found");
     expect(result.product).toMatchObject({ ean: EAN, product_ref: `ean:${EAN}` });
-    expect(result.offers.map((o) => o.source).sort()).toEqual([
+    expect(result.offers?.map((o) => o.source).sort()).toEqual([
       "lafourche",
       "lavieclaire",
       "naturalia",
@@ -168,11 +168,11 @@ describe("NutritionService", () => {
     });
     expect(result.query_kind).toBe("text");
     expect(result.products[0]).toMatchObject({ ean: EAN, match: "ean" });
-    expect(result.products[0]?.offers.map((o) => o.source).sort()).toEqual(["lafourche", "naturalia"]);
+    expect(result.products[0]?.offers?.map((o) => o.source).sort()).toEqual(["lafourche", "naturalia"]);
     expect(result.sources.off).toBeUndefined();
 
     const offOnly = await service([off]).findProduct({ query: "pain intégral montignac" });
-    expect(offOnly.products[0]?.offers.map((o) => o.source)).toEqual(["off"]);
+    expect(offOnly.products[0]?.offers?.map((o) => o.source)).toEqual(["off"]);
   });
 
   it("joins offers whose barcode is only on the product page, despite different brand names", async () => {
@@ -196,7 +196,7 @@ describe("NutritionService", () => {
     const result = await service([pageOnly, maker]).findProduct({ query: "pain intégral montignac" });
     expect(result.products).toHaveLength(1);
     expect(result.products[0]).toMatchObject({ ean: EAN, match: "ean" });
-    expect(result.products[0]?.offers.map((o) => o.source).sort()).toEqual(["labellevie", "naturalia"]);
+    expect(result.products[0]?.offers?.map((o) => o.source).sort()).toEqual(["labellevie", "naturalia"]);
   });
 
   it("answers within the budget when a source is slow", async () => {

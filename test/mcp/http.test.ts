@@ -9,6 +9,7 @@ import { Cache } from "../../src/infra/cache.ts";
 import { HealthTracker } from "../../src/infra/health.ts";
 import { silentLogger } from "../../src/infra/logger.ts";
 import { createHttpServer } from "../../src/mcp/http.ts";
+import { SERVER_INFO } from "../../src/mcp/server.ts";
 import type { SourceAdapter } from "../../src/sources/adapter.ts";
 
 const TOKEN = "s".repeat(40);
@@ -114,6 +115,9 @@ describe("MCP over HTTP", () => {
     expect(data.status).toBe("found");
     expect(data.product.ean).toBe(EAN);
     expect(data.label.nutrients.energy_kcal?.value).toBe(230);
+
+    const sources = await client.callTool({ name: "list_sources", arguments: {} });
+    expect(sources.structuredContent).toMatchObject({ server_version: SERVER_INFO.version });
     await client.close();
   });
 

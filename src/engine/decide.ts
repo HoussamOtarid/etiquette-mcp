@@ -137,6 +137,19 @@ export function decideLabel({ labels, productName, tierOf }: DecideInput): Decid
   const insufficient = aligned.filter((l) => l.selfCheck.status === "insufficient").map((l) => l.source);
 
   const flagDetails = aligned.flatMap((l) => flagDetailsOf(l));
+  if (flags.has("copied_label_collapsed")) {
+    for (const l of aligned) {
+      const copies = aligned
+        .filter((o) => o !== l && o.independenceKey === l.independenceKey)
+        .map((o) => o.source);
+      if (copies.length > 0 && l.independenceKey !== l.source)
+        flagDetails.push({
+          flag: "copied_label_collapsed",
+          source: l.source,
+          detail: `same label as ${copies.join(", ")}`,
+        });
+    }
+  }
   const overall = confidenceOf(nutrients, independentSources, assembledOk, failed.length === 0);
   const confidence: DecidedLabel["confidence"] = {
     overall,
