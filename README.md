@@ -47,7 +47,7 @@ All values are per 100 g or per 100 ml (`label.basis`).
 1. **Identity**: offers from different sources are the same product when they share a barcode, or, without one,
    the same brand, pack size and name (a swapped word such as another flavour is a different product).
 2. **Normalisation**: sodium is converted to salt, swapped kJ/kcal values are repaired, zeros from sources that
-   use 0 for "unknown" are ignored, and impossible values are dropped.
+   use 0 for "unknown" and values a source marks as its own estimate are ignored, and impossible values are dropped.
 3. **Self-check**: energy is compared with fat, carbohydrates, protein and fibre, and kJ with kcal. Inconsistent labels
    count less; an identifiable decimal slip, or a 0 that explains missing energy, removes the faulty value.
 4. **Voting**: per nutrient, values agreeing within label rounding (or within EU declared-value tolerances) are
@@ -56,14 +56,10 @@ All values are per 100 g or per 100 ml (`label.basis`).
 
 ## Sources
 
-Open Food Facts, La Fourche, Kazidomi, Biocoop, La Vie Claire, Naturalia, La Belle Vie and Chronodrive. Requests are anonymous:
-fixed neutral user agent, no cookies, no accounts. Each host is rate limited, and results are cached in SQLite.
-
-Open Food Facts is read through its current API (v3.6) and new nutrition format: the basis (per 100 g or 100 ml) comes
-from the data, "<" values are kept as such, and Open Food Facts' own estimates are not counted as label values. Lookups
-follow its documented quotas (one paced queue for all barcode reads), and a tool call waits for them (up to
-`OFF_MAX_WAIT_MS`) instead of failing, backing off on 429/503. As its API asks, these
-requests identify the project with its repository URL.
+Open Food Facts, La Fourche, Kazidomi, Biocoop, La Vie Claire, Naturalia, La Belle Vie and Chronodrive. Requests are
+anonymous: no cookies, no accounts, and a user agent that only names the project (with its repository URL for Open Food
+Facts, which asks API clients to identify themselves). Each source is paced to its documented limits or a polite rate,
+and results are cached in SQLite.
 
 ## Running
 
@@ -98,7 +94,7 @@ The MCP endpoint is `POST /mcp` (streamable HTTP, stateless) with `Authorization
 
 ```bash
 npm run check    # typecheck + lint + tests
-npm run smoke    # live lookups against the real sources
+npm run smoke    # live lookups against the real sources (-- --check: fail on missing products or source errors)
 ```
 
 ```
@@ -107,7 +103,7 @@ src/
   engine/   pure decision logic: normalisation, self-check, voting, identity, confidence
   sources/  one adapter per source + free-text label parser
   infra/    HTTP client with per-host limits, SQLite cache, logging, health
-  app/      find_product / get_label use cases
+  app/      the use cases behind the tools, presentation of results
   mcp/      tool definitions and HTTP transport
 test/       unit tests and recorded source fixtures
 ```
