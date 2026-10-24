@@ -2,7 +2,16 @@ import { describe, expect, it } from "vitest";
 import { isInternalCode, looksLikeBarcode, normalizeEan, usableEan } from "../../src/domain/ean.ts";
 import { parseNumber, parseNutrientAmount } from "../../src/domain/numbers.ts";
 import { parseQuantity, sameQuantity } from "../../src/domain/quantity.ts";
-import { brandSlug, nameTokens, sameBrand, tokenSimilarity } from "../../src/domain/text.ts";
+import {
+  brandInQuery,
+  brandSlug,
+  nameTokens,
+  oneNameContainsTheOther,
+  percentagesOf,
+  sameBrand,
+  sharesWordBesidesBrand,
+  tokenSimilarity,
+} from "../../src/domain/text.ts";
 
 describe("ean", () => {
   it("validates check digits", () => {
@@ -86,5 +95,26 @@ describe("text", () => {
     expect(sameBrand("U", "U Bio")).toBe(true);
     expect(sameBrand("Naturalia", "Biocoop")).toBe(false);
     expect(sameBrand(null, "Biocoop")).toBeNull();
+  });
+
+  it("finds a brand written in the query", () => {
+    expect(brandInQuery("Bonval bœuf haché 5%", ["Toupargel", "Bonval", null])).toBe("Bonval");
+    expect(brandInQuery("pain des fleurs", ["Pain des Fleurs", "Fleurs"])).toBe("Pain des Fleurs");
+    expect(brandInQuery("lait bio", ["Bio", "Lactel"])).toBeNull();
+  });
+
+  it("checks for a shared word besides the brand", () => {
+    expect(sharesWordBesidesBrand("Bonval bœuf haché", "Steak haché pur boeuf", "Bonval")).toBe(true);
+    expect(sharesWordBesidesBrand("Bonval bœuf haché", "Oeufs frais Bonval", "Bonval")).toBe(false);
+  });
+
+  it("tells a longer wording from a word swap", () => {
+    expect(oneNameContainsTheOther("Kéfir citron", "Kéfir frais de fruit citron BIO")).toBe(true);
+    expect(oneNameContainsTheOther("Kéfir frais citron", "Kéfir frais framboise")).toBe(false);
+  });
+
+  it("reads percentages", () => {
+    expect(percentagesOf("Steak haché 20 %MG, crème 4,5 %")).toEqual([20, 4.5]);
+    expect(percentagesOf("Steak haché")).toEqual([]);
   });
 });

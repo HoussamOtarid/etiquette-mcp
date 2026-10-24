@@ -21,6 +21,28 @@ describe("Open Food Facts", () => {
     expect(["producer", "crowd"]).toContain(offer?.label?.dataOrigin);
   });
 
+  it("reports the language of the ingredients, French first", () => {
+    const base = {
+      code: "4014500519166",
+      product_name: "Protein Pudding",
+      nutriments: { "energy-kcal_100g": 74 },
+    };
+    const czech = parseOffProduct({
+      ...base,
+      ingredients_text: "mléčné bílkoviny, mléko",
+      ingredients_lc: "cs",
+      lang: "de",
+    });
+    expect(czech?.label).toMatchObject({ ingredients: "mléčné bílkoviny, mléko", ingredientsLang: "cs" });
+    const french = parseOffProduct({
+      ...base,
+      ingredients_text: "milk",
+      ingredients_text_fr: "lait",
+      ingredients_lc: "en",
+    });
+    expect(french?.label).toMatchObject({ ingredients: "lait", ingredientsLang: "fr" });
+  });
+
   it("parses name search hits", () => {
     const offers = parseOffSearch(json("off/search-coquillettes-prix-mini.json"));
     expect(offers.length).toBeGreaterThan(0);

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { parseQuantity, sameQuantity } from "../domain/quantity.ts";
-import { sameBrand, tokenSimilarity } from "../domain/text.ts";
+import { oneNameContainsTheOther, percentagesOf, sameBrand, tokenSimilarity } from "../domain/text.ts";
 import type { Offer, SourceId, Tier } from "../domain/types.ts";
 
 export type MatchKind = "ean" | "name_brand_size" | "single_offer";
@@ -18,13 +18,18 @@ export interface ProductGroup {
 
 /** Minimum name similarity for two offers without barcodes to be considered the same product. */
 const SAME_PRODUCT_NAME_SIMILARITY = 0.5;
+/** Above this similarity, one differing word is tolerated (shops word names differently). */
+const NEAR_IDENTICAL_NAME_SIMILARITY = 0.8;
 
 function sameProduct(a: Offer, b: Offer): boolean {
   if (a.ean && b.ean) return a.ean === b.ean;
   if (sameBrand(a.brand, b.brand) !== true) return false;
   const size = sameQuantity(parseQuantity(a.sizeText ?? a.name), parseQuantity(b.sizeText ?? b.name));
   if (size === false) return false;
-  return tokenSimilarity(a.name, b.name) >= SAME_PRODUCT_NAME_SIMILARITY;
+  const similarity = tokenSimilarity(a.name, b.name);
+  // A word swap ("Citron" / "Framboise") is another flavour or variety, not a different wording.
+  if (similarity >= NEAR_IDENTICAL_NAME_SIMILARITY) return true;
+  return similarity >= SAME_PRODUCT_NAME_SIMILARITY && oneNameContainsTheOther(a.name, b.name);
 }
 
 function mostCommon<T>(values: Array<T | null>): T | null {
@@ -44,16 +49,19 @@ function groupRef(offers: Offer[], ean: string | null): string {
 
 /**
  * Groups offers from several sources into products. Offers sharing a barcode are the same product; offers without
- * a barcode join a group only when brand, pack size and name all match. Different brands are never merged.
+ * a barcode join a group only when brand, pack size and name all match, and only across shops: two listings of the
+ * same shop are different products (e.g. two flavours). Different brands are never merged.
  */
 export function groupOffers(offers: Offer[], tierOf: (s: SourceId) => Tier): ProductGroup[] {
   const groups: Offer[][] = [];
   for (const offer of offers) {
+    const byName = (g: Offer[]) =>
+      !g.some((o) => o.source === offer.source) && g.some((o) => sameProduct(o, offer));
     const home = offer.ean
       ? (groups.find((g) => g.some((o) => o.ean === offer.ean)) ??
         // A barcoded offer may join a group that has no barcode yet, on brand + size + name.
-        groups.find((g) => g.every((o) => !o.ean) && g.some((o) => sameProduct(o, offer))))
-      : groups.find((g) => g.some((o) => sameProduct(o, offer)));
+        groups.find((g) => g.every((o) => !o.ean) && byName(g)))
+      : groups.find(byName);
     if (home) home.push(offer);
     else groups.push([offer]);
   }
@@ -81,6 +89,13 @@ export interface RankOptions {
   size?: string;
 }
 
+/** The product name states a percentage (fat 20 %) and none of them is the one asked for (5 %). */
+export function contradictsQuery(group: ProductGroup, query: string): boolean {
+  const wanted = percentagesOf(query);
+  const stated = group.offers.flatMap((o) => percentagesOf(o.name));
+  return wanted.length > 0 && stated.length > 0 && !wanted.some((p) => stated.includes(p));
+}
+
 /** Relevance of a product group to a free-text query (higher is better). */
 export function scoreGroup(group: ProductGroup, { query, brand, size }: RankOptions): number {
   const nameScore = Math.max(
@@ -91,6 +106,7 @@ export function scoreGroup(group: ProductGroup, { query, brand, size }: RankOpti
   const brandMatch = brand ? sameBrand(brand, group.brand) : null;
   if (brandMatch === true) score += 0.3;
   if (brandMatch === false) score -= 0.3;
+  if (contradictsQuery(group, query)) score -= 0.3;
   if (size) {
     const sizeMatch = sameQuantity(parseQuantity(size), parseQuantity(group.sizeText ?? group.name));
     if (sizeMatch === true) score += 0.15;
@@ -104,14 +120,16 @@ export function scoreGroup(group: ProductGroup, { query, brand, size }: RankOpti
 export function rankGroups(
   groups: ProductGroup[],
   options: RankOptions,
-): Array<ProductGroup & { score: number }> {
-  return groups.map((g) => ({ ...g, score: scoreGroup(g, options) })).sort((a, b) => b.score - a.score);
+): Array<ProductGroup & { score: number; contradicted: boolean }> {
+  return groups
+    .map((g) => ({ ...g, score: scoreGroup(g, options), contradicted: contradictsQuery(g, options.query) }))
+    .sort((a, b) => b.score - a.score);
 }
 
-/** The query designates one product unambiguously (clear winner). */
-export function isUnambiguous(ranked: Array<{ score: number }>): boolean {
+/** The query designates one product unambiguously (clear winner that the query does not contradict). */
+export function isUnambiguous(ranked: Array<{ score: number; contradicted?: boolean }>): boolean {
   const [first, second] = ranked;
-  if (!first) return false;
+  if (!first || first.contradicted) return false;
   if (!second) return first.score >= 0.4;
   return first.score >= 0.5 && first.score - second.score >= 0.25;
 }

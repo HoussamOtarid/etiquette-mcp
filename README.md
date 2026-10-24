@@ -37,7 +37,7 @@ All values are per 100 g or per 100 ml (`label.basis`).
 ## How a label is decided
 
 1. **Identity**: offers from different sources are the same product when they share a barcode, or, without one,
-   the same brand, pack size and name.
+   the same brand, pack size and name (a swapped word such as another flavour is a different product).
 2. **Normalisation**: sodium is converted to salt, swapped kJ/kcal values are repaired, zeros from sources that
    use 0 for "unknown" are ignored, and impossible values are dropped.
 3. **Self-check**: energy is compared with fat, carbohydrates, protein and fibre, and kJ with kcal. Inconsistent labels

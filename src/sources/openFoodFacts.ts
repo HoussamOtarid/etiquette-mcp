@@ -29,6 +29,7 @@ const FIELDS = [
   "nutriscore_grade",
   "ingredients_text_fr",
   "ingredients_text",
+  "ingredients_lc",
   "allergens_tags",
   "traces_tags",
   "data_sources_tags",
@@ -46,6 +47,8 @@ interface OffProduct {
   nutriscore_grade?: string;
   ingredients_text_fr?: string;
   ingredients_text?: string;
+  /** Language of `ingredients_text`. */
+  ingredients_lc?: string;
   allergens_tags?: string[];
   traces_tags?: string[];
   data_sources_tags?: string[];
@@ -95,7 +98,7 @@ export function parseOffProduct(product: OffProduct): Offer | null {
     : null;
   const ingredientsFr = cleanText(product.ingredients_text_fr);
   label.ingredients = ingredientsFr ?? cleanText(product.ingredients_text);
-  const lang = ingredientsFr ? "fr" : product.lang;
+  const lang = ingredientsFr ? "fr" : (product.ingredients_lc ?? product.lang);
   if (label.ingredients && lang) label.ingredientsLang = lang;
   label.allergens = tagsText(product.allergens_tags);
   label.traces = tagsText(product.traces_tags);

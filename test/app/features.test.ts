@@ -134,6 +134,17 @@ describe("presentation", () => {
 });
 
 describe("service features", () => {
+  it("uses a brand written in the query and drops unrelated products", async () => {
+    const shops = fake("labellevie", "C", () => [
+      offer("labellevie", "Steak haché pur bœuf 5%", { brand: "Bonval", ean: "3760099539001" }),
+      offer("labellevie", "Oeufs frais BIO", { brand: "Bonval", ean: "3760099536978" }),
+      offer("labellevie", "10 steaks hachés pur bœuf 5%", { brand: "Toupargel", ean: "3273230252144" }),
+    ]);
+    const result = await service([shops]).findProduct({ query: "Bonval bœuf haché 5%" });
+    expect(result.products.map((p) => p.name)).toEqual(["Steak haché pur bœuf 5%"]);
+    expect(result.notes).toContain("Brand taken from the query: Bonval.");
+  });
+
   it("keeps the requested brand, scores products and previews known labels", async () => {
     const shops = fake("lafourche", "A", () => [
       offer("lafourche", "Biscuits pois gourmands citron", {

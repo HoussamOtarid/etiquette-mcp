@@ -83,6 +83,14 @@ export function tokenSimilarity(a: string | null | undefined, b: string | null |
   return shared / (ta.length + tb.length - shared);
 }
 
+/** Every word of one name is in the other ("Kéfir citron" ⊂ "Kéfir frais citron"), as opposed to a word swap. */
+export function oneNameContainsTheOther(a: string | null | undefined, b: string | null | undefined): boolean {
+  const ta = tokensOf(a);
+  const tb = tokensOf(b);
+  const within = (x: Token[], y: Token[]) => x.every((t) => y.some((u) => sameToken(t, u)));
+  return within(ta, tb) || within(tb, ta);
+}
+
 /** Open Food Facts style tag: "Prix Mini" → "prix-mini", "Côteaux Nantais" → "coteaux-nantais". */
 export function brandSlug(brand: string | null | undefined): string {
   return normalizeText(brand).replace(/ /g, "-");
@@ -97,4 +105,39 @@ export function sameBrand(a: string | null | undefined, b: string | null | undef
   const wa = sa.split("-");
   const wb = sb.split("-");
   return wa.every((w) => wb.includes(w)) || wb.every((w) => wa.includes(w));
+}
+
+/**
+ * A brand written in the query ("bonval bœuf haché"): the longest of the given brands whose words all appear in the
+ * query. Brands made only of short or generic words are ignored.
+ */
+export function brandInQuery(query: string, brands: Array<string | null>): string | null {
+  const words = new Set(normalizeText(query).split(" "));
+  let best: string | null = null;
+  for (const brand of brands) {
+    const parts = brandSlug(brand).split("-").filter(Boolean);
+    if (parts.length === 0 || !parts.some((w) => w.length >= 3 && !STOPWORDS.has(w))) continue;
+    if (parts.every((w) => words.has(w)) && (!best || brandSlug(brand).length > brandSlug(best).length))
+      best = brand;
+  }
+  return best;
+}
+
+/** The texts share at least one word, not counting the brand's words. */
+export function sharesWordBesidesBrand(
+  query: string,
+  text: string,
+  brand: string | null | undefined,
+): boolean {
+  const brandTokens = tokensOf(brand);
+  const queryTokens = tokensOf(query).filter((t) => !brandTokens.some((b) => sameToken(t, b)));
+  const textTokens = tokensOf(text);
+  return queryTokens.some((q) => textTokens.some((t) => sameToken(q, t)));
+}
+
+/** Percentages written in a text ("5%", "20 %MG", "4,5 %"), as numbers. */
+export function percentagesOf(text: string | null | undefined): number[] {
+  return [...(text ?? "").matchAll(/(\d+(?:[.,]\d+)?)\s*%/g)].map((m) =>
+    Number((m[1] ?? "").replace(",", ".")),
+  );
 }

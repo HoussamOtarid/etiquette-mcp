@@ -1,7 +1,13 @@
 import type { Config } from "../config.ts";
 import { looksLikeBarcode, normalizeEan } from "../domain/ean.ts";
 import { parseQuantity } from "../domain/quantity.ts";
-import { nameTokens, sameBrand, tokenSimilarity } from "../domain/text.ts";
+import {
+  brandInQuery,
+  nameTokens,
+  sameBrand,
+  sharesWordBesidesBrand,
+  tokenSimilarity,
+} from "../domain/text.ts";
 import type { Offer, SourceId, SourceLabel, Tier } from "../domain/types.ts";
 import { decideLabel } from "../engine/decide.ts";
 import { groupOffers, isUnambiguous, type ProductGroup, rankGroups } from "../engine/identity.ts";
@@ -50,7 +56,7 @@ export interface ComparePricesInput {
   sources?: SourceId[];
 }
 
-type RankedGroup = ProductGroup & { score: number };
+type RankedGroup = ProductGroup & { score: number; contradicted: boolean };
 
 type Resolution =
   | { kind: "group"; group: ProductGroup; ranked: RankedGroup[] }
@@ -110,10 +116,6 @@ const NO_MATCH_ADVICE = "No product matches this query in any source.";
 const PRICE_NOTE =
   "Total online list prices for the same product at lookup time; they can differ by shop, delivery zone or promotion.";
 
-/**
- * With a brand given, other brands are dropped when products of that brand were found (products without a brand stay
- * if their name matches well). Clearly unrelated results are dropped when better ones exist.
- */
 async function mapWithConcurrency<T, R>(
   items: T[],
   limit: number,
@@ -151,13 +153,23 @@ function onePerSource(labels: SourceLabel[]): SourceLabel[] {
   return [...best.values()];
 }
 
-export function relevantGroups(ranked: RankedGroup[], brand: string | undefined): RankedGroup[] {
+/**
+ * With a brand given, other brands are dropped when products of that brand were found (products without a brand stay
+ * if their name matches well). Clearly unrelated results are dropped when better ones exist.
+ */
+export function relevantGroups(
+  ranked: RankedGroup[],
+  query: string,
+  brand: string | undefined,
+): RankedGroup[] {
   let kept = ranked;
   if (brand && ranked.some((g) => sameBrand(g.brand, brand) === true)) {
     kept = ranked.filter(
       (g) => sameBrand(g.brand, brand) === true || (!g.brand && g.score >= MIN_NULL_BRAND_RELEVANCE),
     );
   }
+  const sharesWord = (g: RankedGroup) => g.offers.some((o) => sharesWordBesidesBrand(query, o.name, brand));
+  if (kept.some(sharesWord)) kept = kept.filter(sharesWord);
   if (kept.some((g) => g.score >= MIN_RELEVANCE)) kept = kept.filter((g) => g.score >= MIN_RELEVANCE);
   return kept;
 }
@@ -378,7 +390,16 @@ export class NutritionService {
   ): Promise<RankedGroup[]> {
     const groups = await this.groupsForText(input, adapters, deadline, status);
     const size = input.size ?? (parseQuantity(input.query) ? input.query : undefined);
-    return relevantGroups(rankGroups(groups, { query: input.query, brand: input.brand, size }), input.brand);
+    let brand = input.brand;
+    if (!brand) {
+      brand =
+        brandInQuery(
+          input.query,
+          groups.map((g) => g.brand),
+        ) ?? undefined;
+      if (brand) status.notes.push(`Brand taken from the query: ${brand}.`);
+    }
+    return relevantGroups(rankGroups(groups, { query: input.query, brand, size }), input.query, brand);
   }
 
   private remember(groups: ProductGroup[]): void {

@@ -81,4 +81,32 @@ describe("identity", () => {
     expect(isUnambiguous(ranked)).toBe(true);
     expect(isUnambiguous(rankGroups(groups, { query: "pain" }))).toBe(false);
   });
+
+  it("does not pick a product whose percentage contradicts the query", () => {
+    const groups = groupOffers(
+      [offer("labellevie", "Steak haché pur bœuf 20 %MG", { brand: "Bonval", ean: "3760099539214" })],
+      tierOf,
+    );
+    const ranked = rankGroups(groups, { query: "Bonval bœuf haché 5%", brand: "Bonval" });
+    expect(isUnambiguous(ranked)).toBe(false);
+  });
+
+  it("never merges two listings of the same shop by name (flavours)", () => {
+    const groups = groupOffers(
+      [
+        offer("labellevie", "Kéfir frais de fruit - Citron BIO", {
+          brand: "Kéfirade",
+          sizeText: "25 cl",
+          ean: "3770013080159",
+        }),
+        offer("labellevie", "Kéfir frais de fruit - Framboise BIO", { brand: "Kéfirade", sizeText: "25 cl" }),
+        offer("biocoop", "Kéfir frais de fruit Framboise", { brand: "Kéfirade", sizeText: "25 cl" }),
+      ],
+      tierOf,
+    );
+    expect(groups.map((g) => g.offers.map((o) => o.source))).toEqual([
+      ["labellevie"],
+      ["labellevie", "biocoop"],
+    ]);
+  });
 });
