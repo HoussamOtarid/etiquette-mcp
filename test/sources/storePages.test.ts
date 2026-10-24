@@ -2,6 +2,11 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { parseBiocoopProduct, parseBiocoopSuggest } from "../../src/sources/biocoop.ts";
 import {
+  hasProductDetails,
+  parseChronodriveProduct,
+  parseChronodriveSearch,
+} from "../../src/sources/chronodrive.ts";
+import {
   parseLaBelleVieProduct,
   parseLaBelleVieSearch,
   splitSellingName,
@@ -135,5 +140,49 @@ describe("La Belle Vie", () => {
     const butter = parse("product-beurre-frichti.html");
     expect(butter.copiedFrom).toBe("off");
     expect(butter.values.energy_kcal?.value).toBe(743);
+  });
+});
+
+describe("Chronodrive", () => {
+  it("reads search results from the page data, once each, with every barcode", () => {
+    const html = text("chronodrive/search-yaourt-nature.html");
+    const offers = parseChronodriveSearch(html);
+    expect(offers).toHaveLength(2);
+    expect(offers[0]).toMatchObject({
+      source: "chronodrive",
+      sourceProductId: "167759",
+      url: "https://www.chronodrive.com/auchan--yaourts-brasses-nature-P167759",
+      name: "Yaourts brassés nature",
+      brand: "AUCHAN",
+      ean: "3254560270770",
+      sizeText: "4 x 125 g",
+      priceEur: 0.79,
+      inStock: true,
+    });
+    expect(parseChronodriveSearch(html, "3596710402502")[0]?.ean).toBe("3596710402502");
+    expect(() => parseChronodriveSearch("<html></html>")).toThrow(/payload/);
+  });
+
+  it("parses the nutrition table, ingredients, allergens and barcode of a product page", () => {
+    const url = "https://www.chronodrive.com/activia--yaourts-bifidus-nature-P3953_1";
+    const { label, ean } = parseChronodriveProduct(text("chronodrive/product-activia-nature.html"), url);
+    expect(ean).toBe("3033491147067");
+    expect(label).toMatchObject({ basis: "100g", nutriscore: "B", allergens: "LAIT", dataOrigin: "store" });
+    expect(nums(label.values)).toEqual({
+      energy_kj: 258,
+      energy_kcal: 62,
+      fat_g: 3.4,
+      saturated_fat_g: 2.2,
+      carbohydrates_g: 4.4,
+      sugars_g: 4.4,
+      protein_g: 3.4,
+      salt_g: 0.12,
+    });
+    expect(label.extra).toContainEqual(expect.objectContaining({ name: "Calcium", value: 119, unit: "mg" }));
+    expect(label.ingredients).toMatch(/^LAIT entier \(96%\)/);
+    const grams = text("chronodrive/product-activia-nature.html").replace(/pour 100 g/g, "pour 100.000 gr");
+    expect(parseChronodriveProduct(grams, url).label.basis).toBe("100g");
+    expect(hasProductDetails(text("chronodrive/product-activia-nature.html"))).toBe(true);
+    expect(hasProductDetails('<html><body><div id="app"></div></body></html>')).toBe(false);
   });
 });

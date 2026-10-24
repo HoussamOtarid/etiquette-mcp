@@ -1,6 +1,7 @@
 import type { SourceId, Tier } from "../domain/types.ts";
 import type { AdapterDeps, SourceAdapter } from "./adapter.ts";
 import { BiocoopAdapter } from "./biocoop.ts";
+import { ChronodriveAdapter } from "./chronodrive.ts";
 import { KazidomiAdapter } from "./kazidomi.ts";
 import { LaBelleVieAdapter } from "./laBelleVie.ts";
 import { LaFourcheAdapter } from "./laFourche.ts";
@@ -17,6 +18,7 @@ export function createAdapters(deps: AdapterDeps): SourceAdapter[] {
     new LaVieClaireAdapter(deps),
     new NaturaliaAdapter(deps),
     new LaBelleVieAdapter(deps),
+    new ChronodriveAdapter(deps),
   ];
   return all.filter((a) => !deps.config.disabledSources.includes(a.id));
 }
@@ -37,6 +39,7 @@ export const HOST_LIMITS = {
   "www.naturalia.fr": { intervalMs: 2000, concurrency: 2 },
   "search.deleev.com": { intervalMs: 1000, concurrency: 2 },
   "www.labellevie.com": { intervalMs: 2000, concurrency: 2 },
+  "www.chronodrive.com": { intervalMs: 2000, concurrency: 1 },
 } as const;
 
 export const DEFAULT_LIMIT = { intervalMs: 2000, concurrency: 1 } as const;

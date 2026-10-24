@@ -53,6 +53,7 @@ const TIERS: Record<SourceId, Tier> = {
   lavieclaire: "B",
   naturalia: "C",
   labellevie: "C",
+  chronodrive: "B",
 };
 const decide = (labels: SourceLabel[], productName = "produit") =>
   decideLabel({ labels, productName, tierOf: (s) => TIERS[s] });

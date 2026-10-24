@@ -1,6 +1,6 @@
 {
   "name": "etiquette-mcp",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "MCP server that looks up a food product across several French grocery sources and returns the best-supported nutrition label with agreement indicators.",
   "license": "MIT",
@@ -28,6 +28,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",
     "cheerio": "1.2.0",
+    "devalue": "^6.0.3",
     "fastest-levenshtein": "1.0.16",
     "snowball-stemmers": "0.6.0",
     "zod": "4.6.7"

@@ -8,6 +8,7 @@ export const SOURCE_IDS = [
   "lavieclaire",
   "naturalia",
   "labellevie",
+  "chronodrive",
 ] as const;
 
 export type SourceId = (typeof SOURCE_IDS)[number];

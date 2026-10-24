@@ -54,7 +54,7 @@ All values are per 100 g or per 100 ml (`label.basis`).
 
 ## Sources
 
-Open Food Facts, La Fourche, Kazidomi, Biocoop, La Vie Claire, Naturalia and La Belle Vie. Requests are anonymous:
+Open Food Facts, La Fourche, Kazidomi, Biocoop, La Vie Claire, Naturalia, La Belle Vie and Chronodrive. Requests are anonymous:
 fixed neutral user agent, no cookies, no accounts. Each host is rate limited, and results are cached in SQLite.
 
 Open Food Facts lookups follow its documented quotas: concurrent barcode lookups are combined into one request, and a
