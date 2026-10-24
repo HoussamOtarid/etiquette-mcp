@@ -2,7 +2,6 @@ import type { NutrientKey } from "../domain/nutrients.ts";
 import type { Basis, SourceId } from "../domain/types.ts";
 import type { MatchKind } from "../engine/identity.ts";
 import type { Agreement, Confidence, Flag } from "../engine/types.ts";
-import type { ComparisonResult } from "./compare.ts";
 
 /** Outcome of calling one source during a request. */
 export type SourceStatus = "ok" | "not_found" | "timeout" | "rate_limited" | "error" | "not_supported";
@@ -118,8 +117,6 @@ export interface GetLabelResult extends MatchHints {
   /** "incomplete": some sources did not answer, so an empty or partial result is not final (see retry_after_s). */
   status: "found" | "ambiguous" | "not_found" | "incomplete";
   retry_after_s?: number;
-  /** Several products matched the description and compare_to picked the only one whose label agrees. */
-  resolved_by?: "compare_to";
   product: ProductView | null;
   label: {
     basis: Basis;
@@ -127,7 +124,6 @@ export interface GetLabelResult extends MatchHints {
     nutriscore: { value: string; sources: SourceId[] } | null;
   } | null;
   ready_to_apply?: ReadyToApply;
-  comparison?: ComparisonResult;
   confidence: {
     overall: Confidence;
     sources_with_label: number;

@@ -10,7 +10,7 @@ together with how strongly the sources agree, per-store prices and the raw label
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `find_product`   | Search by barcode, name or keywords (optional brand and size). Up to 5 products grouped across stores, with a match score, a macro preview and store offers. |
 | `get_label`      | Best nutrition label for one product, from a barcode, a `product_ref` or a description (returns candidates when ambiguous).                                  |
-| `get_labels`     | `get_label` for up to 20 products in one call (a meal, a receipt), each with its own `compare_to`; compact by default.                                       |
+| `get_labels`     | `get_label` for up to 20 products in one call (a meal, a receipt), each optionally with a brand; compact by default.                                         |
 | `compare_prices` | The exact same product across stores, cheapest total price first, with the price spread.                                                                     |
 | `list_sources`   | Sources, their capabilities and recent health, and the server version.                                                                                       |
 
@@ -18,8 +18,7 @@ Every lookup tool accepts `sources` to restrict the stores used (default: all).
 
 A `get_label` answer contains:
 - `status`: `found`, `ambiguous` (see `candidates`, each with a score and a macro preview), `not_found`, or
-  `incomplete` when sources did not answer in time (retry after `retry_after_s`). With `compare_to`, an ambiguous
-  description resolves to the only candidate whose label agrees (`resolved_by: "compare_to"`)
+  `incomplete` when sources did not answer in time (retry after `retry_after_s`)
 - `no_good_match` / `requested_brand_found`: the best match is weak, or the brand given was not found
 - `label.nutrients`: per nutrient, the chosen value with its agreement (`strong`, `weak`, `majority`, `single`
   or `conflict`), how many sources agree, dissenting values and `<` / traces qualifiers
@@ -28,8 +27,6 @@ A `get_label` answer contains:
 - `confidence`: overall level (`high` / `medium` / `low` / `none`), independent source count, missing nutrients,
   self-check results, flags and `flag_details` naming the source and nutrient behind each flag
 - `advice`: a short instruction for the calling model
-- `comparison`: with `compare_to`, a per-nutrient verdict (`match`, `close`, `mismatch`, `no_data`) against values
-  you already have
 - `variants`: same brand, other sizes or flavours
 - `ingredients` (with language), `allergens`, `traces`, `nutriscore`, and `offers` with prices per store
 - `per_source`: each source's structured label, raw label text, unmapped extra nutrients (vitamins, minerals, …) and

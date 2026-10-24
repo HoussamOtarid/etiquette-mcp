@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { compareWithLabel } from "../../src/app/compare.ts";
 import { NutritionService } from "../../src/app/nutritionService.ts";
 import { displayValue, readyToApply } from "../../src/app/present.ts";
 import { rankByPrice, spreadOf } from "../../src/app/prices.ts";
@@ -75,28 +74,6 @@ const service = (adapters: SourceAdapter[]) =>
     config: config(),
     logger: silentLogger,
   });
-
-describe("compare_to", () => {
-  it("rates each nutrient and the whole entry", () => {
-    const nutrients = {
-      energy_kcal: { value: 287 },
-      protein_g: { value: 10 },
-      carbohydrates_g: { value: 49 },
-      fat_g: { value: 5 },
-    };
-    const result = compareWithLabel(
-      { energy_kcal: 287, protein_g: 9.3, carbohydrates_g: 54, fat_g: 3.4, fiber_g: 3 },
-      nutrients,
-    );
-    expect(result.nutrients.energy_kcal?.verdict).toBe("match");
-    expect(result.nutrients.protein_g?.verdict).toBe("close");
-    expect(result.nutrients.carbohydrates_g).toMatchObject({ verdict: "close", difference: -5 });
-    expect(result.nutrients.fat_g).toMatchObject({ verdict: "mismatch", difference: 1.6 });
-    expect(result.nutrients.fiber_g?.verdict).toBe("no_data");
-    expect(result.verdict).toBe("mismatch");
-    expect(compareWithLabel({ energy_kcal: 286 }, nutrients).verdict).toBe("match");
-  });
-});
 
 describe("prices", () => {
   it("ranks offers by total price and computes the spread", () => {
@@ -174,53 +151,18 @@ describe("service features", () => {
     }),
   });
 
-  it("previews the label of every candidate and picks the one matching compare_to", async () => {
-    const svc = service([yogurts()]);
-    const ambiguous = await svc.getLabel({ product: "yaourt nature" });
+  it("previews the label of every candidate", async () => {
+    const ambiguous = await service([yogurts()]).getLabel({ product: "yaourt nature" });
     expect(ambiguous.status).toBe("ambiguous");
     expect(ambiguous.candidates?.map((c) => c.label_preview?.energy_kcal)).toEqual([95, 60]);
-
-    const picked = await svc.getLabel({
-      product: "yaourt nature",
-      compareTo: { energy_kcal: 96, protein_g: 5.2 },
-    });
-    expect(picked).toMatchObject({ status: "found", resolved_by: "compare_to" });
-    expect(picked.product?.name).toBe("Yaourt nature brebis 4x125g");
-
-    const none = await svc.getLabel({
-      product: "yaourt nature",
-      compareTo: { energy_kcal: 200, protein_g: 10 },
-    });
-    expect(none.status).toBe("ambiguous");
   });
 
-  it("prefers the candidate matching compare_to exactly over one within label tolerance", async () => {
-    const pasta: SourceAdapter = {
-      ...yogurts(),
-      search: async () => [
-        offer("lafourche", "Macaronis complets 500g", { brand: "P" }),
-        offer("lafourche", "Macaronis demi-complets 500g", { brand: "P" }),
-      ],
-      getLabel: async (o) => ({
-        label: o.name.includes("demi")
-          ? label("lafourche", 358, 1.9, 71.6, 10.9)
-          : label("lafourche", 354, 1.8, 67.5, 12.6),
-      }),
-    };
-    const result = await service([pasta]).getLabel({
-      product: "macaronis",
-      compareTo: { energy_kcal: 354, carbohydrates_g: 67.5, protein_g: 12.6 },
-    });
-    expect(result).toMatchObject({ status: "found", resolved_by: "compare_to" });
-    expect(result.product?.name).toBe("Macaronis complets 500g");
-  });
-
-  it("takes per-item compare_to in get_labels and returns compact results by default", async () => {
+  it("takes per-item brands in get_labels and returns compact results by default", async () => {
     const result = await service([yogurts()]).getLabels({
-      products: [{ product: "yaourt nature", compareTo: { energy_kcal: 60, fat_g: 3.4 } }],
+      products: [{ product: "yaourt nature vache", brand: "Y" }],
     });
     const [first] = result.results;
-    expect(first).toMatchObject({ input: "yaourt nature", status: "found", resolved_by: "compare_to" });
+    expect(first).toMatchObject({ input: "yaourt nature vache", status: "found" });
     expect(first?.product).toMatchObject({ name: "Yaourt nature vache 4x125g", stores: ["lafourche"] });
     expect(first?.product?.offers).toBeUndefined();
     expect(first?.offers).toBeUndefined();

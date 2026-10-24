@@ -3,23 +3,12 @@ import { z } from "zod";
 import type { NutritionService } from "../app/nutritionService.ts";
 import { SOURCE_IDS } from "../domain/types.ts";
 
-export const SERVER_INFO = { name: "etiquette-mcp", version: "0.2.0" } as const;
+export const SERVER_INFO = { name: "etiquette-mcp", version: "0.3.0" } as const;
 
 const sourcesSchema = z
   .array(z.enum(SOURCE_IDS))
   .optional()
   .describe("Only use these sources (default: all). Ids: " + SOURCE_IDS.join(", "));
-
-const expectedSchema = z.object({
-  energy_kcal: z.number().nonnegative().optional(),
-  fat_g: z.number().nonnegative().optional(),
-  saturated_fat_g: z.number().nonnegative().optional(),
-  carbohydrates_g: z.number().nonnegative().optional(),
-  sugars_g: z.number().nonnegative().optional(),
-  fiber_g: z.number().nonnegative().optional(),
-  protein_g: z.number().nonnegative().optional(),
-  salt_g: z.number().nonnegative().optional(),
-});
 
 const readOnly = {
   readOnlyHint: true,
@@ -92,9 +81,8 @@ export function buildMcpServer(service: NutritionService): McpServer {
         "ingredients, allergens, prices per store, and each source's structured and raw label (which may list extra " +
         "nutrients). ready_to_apply gives flat values to store; nutrients the sources disagree on stay null there and " +
         "are listed in ready_to_apply.conflicts. Accepts a barcode directly, a product_ref from find_product, or a " +
-        "product description (returns candidates with label_preview if ambiguous; with compare_to, the only candidate " +
-        "whose label agrees is picked, resolved_by: 'compare_to'). status 'incomplete' means sources timed out or " +
-        "were rate limited: retry later.",
+        "product description (returns candidates with label_preview if ambiguous). status 'incomplete' means sources " +
+        "timed out or were rate limited: retry later.",
       inputSchema: {
         product: z
           .string()
@@ -104,11 +92,6 @@ export function buildMcpServer(service: NutritionService): McpServer {
         brand: z.string().max(60).optional().describe("Brand, when passing a description"),
         sources: sourcesSchema,
         include_raw: z.boolean().optional().describe("Include per-source labels and raw text (default true)"),
-        compare_to: expectedSchema
-          .optional()
-          .describe(
-            "Values you already have (e.g. a logged entry), per 100 g/ml: returns a per-nutrient comparison",
-          ),
         compact: z
           .boolean()
           .optional()
@@ -118,7 +101,7 @@ export function buildMcpServer(service: NutritionService): McpServer {
       },
       annotations: { title: "Get the best nutrition label", ...readOnly },
     },
-    async ({ product, brand, sources, include_raw, compare_to, compact }) => {
+    async ({ product, brand, sources, include_raw, compact }) => {
       try {
         return respond(
           await service.getLabel({
@@ -126,7 +109,6 @@ export function buildMcpServer(service: NutritionService): McpServer {
             brand,
             sources,
             includeRaw: include_raw,
-            compareTo: compare_to,
             compact,
           }),
         );
@@ -143,7 +125,7 @@ export function buildMcpServer(service: NutritionService): McpServer {
       description:
         "Batch version of get_label for up to 20 products (barcodes, product_refs or descriptions), e.g. a meal or a " +
         "receipt. Faster and kinder to rate limits than separate calls: Open Food Facts lookups are combined. Each " +
-        "item is a string or {product, brand?, compare_to?}. Returns one result per input, in order, compact by " +
+        "item is a string or {product, brand?}. Returns one result per input, in order, compact by " +
         "default (stores instead of offers; no per-source labels, ingredients or variants).",
       inputSchema: {
         products: z
@@ -153,13 +135,12 @@ export function buildMcpServer(service: NutritionService): McpServer {
               z.object({
                 product: z.string().min(2).max(200),
                 brand: z.string().max(60).optional(),
-                compare_to: expectedSchema.optional(),
               }),
             ]),
           )
           .min(1)
           .max(20)
-          .describe("Barcodes, product_refs or descriptions, optionally with brand and compare_to"),
+          .describe("Barcodes, product_refs or descriptions, optionally with a brand"),
         sources: sourcesSchema,
         include_raw: z
           .boolean()
@@ -172,7 +153,7 @@ export function buildMcpServer(service: NutritionService): McpServer {
     async ({ products, sources, include_raw, compact }) => {
       try {
         const items = products.map((p) =>
-          typeof p === "string" ? p : { product: p.product, brand: p.brand, compareTo: p.compare_to },
+          typeof p === "string" ? p : { product: p.product, brand: p.brand },
         );
         return respond(
           await service.getLabels({ products: items, sources, includeRaw: include_raw, compact }),

@@ -15,7 +15,6 @@ import type { Cache } from "../infra/cache.ts";
 import type { HealthTracker } from "../infra/health.ts";
 import type { Logger } from "../infra/logger.ts";
 import type { SourceAdapter } from "../sources/adapter.ts";
-import { compareWithLabel, type ExpectedValues, previewVerdict } from "./compare.ts";
 import {
   compactLabelResult,
   labelPreview,
@@ -51,7 +50,6 @@ export interface GetLabelInput {
   brand?: string;
   sources?: SourceId[];
   includeRaw?: boolean;
-  compareTo?: ExpectedValues;
   /** Leave out offers, per-source labels, ingredients, variants and similar products. */
   compact?: boolean;
 }
@@ -59,7 +57,6 @@ export interface GetLabelInput {
 export interface BatchItem {
   product: string;
   brand?: string;
-  compareTo?: ExpectedValues;
 }
 
 export interface GetLabelsInput {
@@ -279,32 +276,8 @@ export class NutritionService {
     const deadline = Date.now() + this.deps.config.requestBudgetMs;
     const status: Statuses = { sources: {}, notes: [] };
     const adapters = this.selected(input.sources);
-    let resolution = await this.resolve(input.product, input.brand, adapters, deadline, status);
-    let resolvedBy: GetLabelResult["resolved_by"];
+    const resolution = await this.resolve(input.product, input.brand, adapters, deadline, status);
 
-    if (resolution.kind === "ambiguous" && input.compareTo) {
-      const candidates = resolution.ranked.slice(0, MAX_RESULTS);
-      const verdicts = candidates.map((g) => {
-        const preview = labelPreview(g, this.tierOf);
-        return { g, verdict: preview ? previewVerdict(input.compareTo ?? {}, preview) : null };
-      });
-      // An exact match (within rounding) wins; values only within label tolerance must single out one product.
-      const matching = verdicts.filter((v) => v.verdict === "match");
-      const close = verdicts.filter((v) => v.verdict === "close");
-      const picked =
-        matching.length === 1
-          ? matching[0]?.g
-          : matching.length === 0 && close.length === 1
-            ? close[0]?.g
-            : undefined;
-      if (picked) {
-        resolution = { kind: "group", group: picked, ranked: resolution.ranked };
-        resolvedBy = "compare_to";
-        status.notes.push(
-          `${candidates.length} products match the description; picked "${picked.name}", the only one whose label agrees with compare_to.`,
-        );
-      }
-    }
     if (resolution.kind === "none")
       return { ...this.notFoundOrIncomplete(status, resolution.advice), ...this.hints(status) };
     if (resolution.kind === "ambiguous") {
@@ -321,7 +294,6 @@ export class NutritionService {
     const product = productView(group, { tierOf: this.tierOf });
     const result: GetLabelResult = {
       status: "found",
-      ...(resolvedBy ? { resolved_by: resolvedBy } : {}),
       ...this.hints(status),
       product,
       ...labelSection(decided),
@@ -330,9 +302,6 @@ export class NutritionService {
       sources: status.sources,
       notes: status.notes,
     };
-    if (input.compareTo && Object.keys(input.compareTo).length > 0) {
-      result.comparison = compareWithLabel(input.compareTo, decided.nutrients);
-    }
     if (input.includeRaw !== false) result.per_source = perSourceViews(decided);
 
     const others = ranked.filter((g) => g.ref !== group.ref);
