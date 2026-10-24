@@ -11,6 +11,7 @@ import { HttpClient } from "../../src/infra/http.ts";
 import { silentLogger } from "../../src/infra/logger.ts";
 import type { SearchQuery, SourceAdapter } from "../../src/sources/adapter.ts";
 import { OpenFoodFactsAdapter } from "../../src/sources/openFoodFacts.ts";
+import { REPOSITORY_URL } from "../../src/version.ts";
 
 function label(source: SourceId, kcal: number, fat: number, carbs: number, protein: number): SourceLabel {
   return {
@@ -382,6 +383,8 @@ describe("get_labels batching", () => {
     });
     const result = await svc.getLabels({ products: [...eans, "ean:4000000000006"] });
     expect(result.results.map((r) => r.input)).toEqual([...eans, "ean:4000000000006"]);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, { headers: Record<string, string> }];
+    expect(init.headers["user-agent"]).toBe(`${cfg.userAgent} (+${REPOSITORY_URL})`);
     expect(result.results.slice(0, 3).every((r) => r.status === "found")).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain("code=");

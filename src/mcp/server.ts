@@ -2,8 +2,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { NutritionService } from "../app/nutritionService.ts";
 import { SOURCE_IDS } from "../domain/types.ts";
+import { VERSION } from "../version.ts";
 
-export const SERVER_INFO = { name: "etiquette-mcp", version: "0.3.0" } as const;
+export const SERVER_INFO = { name: "etiquette-mcp", version: VERSION } as const;
 
 const sourcesSchema = z
   .array(z.enum(SOURCE_IDS))

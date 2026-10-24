@@ -3,6 +3,7 @@ import type { NutrientKey } from "../domain/nutrients.ts";
 import { brandSlug } from "../domain/text.ts";
 import type { Basis, Offer } from "../domain/types.ts";
 import { TTL } from "../infra/cache.ts";
+import { REPOSITORY_URL } from "../version.ts";
 import {
   type AdapterDeps,
   cleanText,
@@ -153,9 +154,12 @@ export class OpenFoodFactsAdapter implements SourceAdapter {
 
   private readonly deps: AdapterDeps;
   private readonly batcher: BarcodeBatcher<OffProduct>;
+  /** Open Food Facts asks API clients to identify themselves; the public project page is given, nothing personal. */
+  private readonly headers: Record<string, string>;
 
   constructor(deps: AdapterDeps) {
     this.deps = deps;
+    this.headers = { "user-agent": `${deps.config.userAgent} (+${REPOSITORY_URL})` };
     this.batcher = new BarcodeBatcher<OffProduct>(
       (code) => this.fetchProduct(code),
       (codes) => this.fetchProducts(codes),
@@ -178,7 +182,7 @@ export class OpenFoodFactsAdapter implements SourceAdapter {
     return cachedSearch(this.deps, this.id, query, async () => {
       const q = query.brand ? `${query.text} brands_tags:"${brandSlug(query.brand)}"` : (query.text ?? "");
       const url = `${SEARCH_URL}?${new URLSearchParams({ q, langs: "fr", page_size: String(query.limit), fields: "code,product_name,brands,quantity" })}`;
-      const res = await this.deps.http.getJson<{ hits?: OffProduct[] }>(url);
+      const res = await this.deps.http.getJson<{ hits?: OffProduct[] }>(url, { headers: this.headers });
       return parseOffSearch(res.body);
     });
   }
@@ -200,7 +204,7 @@ export class OpenFoodFactsAdapter implements SourceAdapter {
   private async fetchProduct(ean: string): Promise<OffProduct | null> {
     const res = await this.deps.http.getJson<{ status?: number; product?: OffProduct }>(
       `${PRODUCT_URL}/${ean}?fields=${FIELDS}`,
-      { allowStatus: [404], retry: false },
+      { allowStatus: [404], retry: false, headers: this.headers },
     );
     return res.status === 404 || res.body.status !== 1 ? null : (res.body.product ?? null);
   }
@@ -213,6 +217,7 @@ export class OpenFoodFactsAdapter implements SourceAdapter {
     });
     const res = await this.deps.http.getJson<{ products?: OffProduct[] }>(`${BATCH_URL}?${params}`, {
       retry: false,
+      headers: this.headers,
     });
     const byCode = new Map<string, OffProduct>();
     for (const product of res.body.products ?? []) {

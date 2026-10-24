@@ -58,7 +58,8 @@ Open Food Facts, La Fourche, Kazidomi, Biocoop, La Vie Claire, Naturalia and La 
 fixed neutral user agent, no cookies, no accounts. Each host is rate limited, and results are cached in SQLite.
 
 Open Food Facts lookups follow its documented quotas: concurrent barcode lookups are combined into one request, and a
-tool call waits for them (up to `OFF_MAX_WAIT_MS`) instead of failing, backing off on 429/503.
+tool call waits for them (up to `OFF_MAX_WAIT_MS`) instead of failing, backing off on 429/503. As its API asks, these
+requests identify the project with its repository URL.
 
 ## Running
 
@@ -87,7 +88,7 @@ The MCP endpoint is `POST /mcp` (streamable HTTP, stateless) with `Authorization
 | `OFF_MAX_WAIT_MS`   | `120000`            | How long a tool call may wait for queued Open Food Facts lookups |
 | `LOG_LEVEL`         | `info`              | `debug`, `info`, `warn`, `error`                                 |
 | `DISABLED_SOURCES`  |                     | Comma-separated source ids                                       |
-| `USER_AGENT`        | `etiquette-mcp/0.1` |                                                                  |
+| `USER_AGENT`        | `etiquette-mcp/<v>` | Open Food Facts requests also carry the project URL              |
 
 ## Development
 

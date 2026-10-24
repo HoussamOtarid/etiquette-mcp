@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { SOURCE_IDS, type SourceId } from "./domain/types.ts";
+import { VERSION } from "./version.ts";
 
 const csv = z
   .string()
@@ -20,7 +21,7 @@ const EnvSchema = z.object({
   OFF_MAX_WAIT_MS: z.coerce.number().int().positive().default(120000),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
   DISABLED_SOURCES: csv,
-  USER_AGENT: z.string().default("etiquette-mcp/0.1"),
+  USER_AGENT: z.string().default(`etiquette-mcp/${VERSION}`),
 });
 
 export interface Config {
