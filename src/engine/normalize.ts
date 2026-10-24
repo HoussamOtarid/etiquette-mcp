@@ -37,6 +37,8 @@ export function normalizeLabel(label: SourceLabel, tier: Tier): NormalizedLabel 
     if (nutrient.qualifier) qualifiers[key] = nutrient.qualifier;
   }
 
+  if (label.basisInferred) addFlag(flags, "basis_inferred");
+
   if (values.salt_g === undefined && label.sodiumG !== undefined) {
     values.salt_g = round(label.sodiumG * SALT_PER_SODIUM, 3);
     addFlag(flags, "salt_from_sodium");
@@ -86,12 +88,18 @@ export function normalizeLabel(label: SourceLabel, tier: Tier): NormalizedLabel 
   if (check.status === "fail") {
     weight *= FAILED_SELF_CHECK_FACTOR;
     addFlag(flags, "self_check_failed");
+    // A value identified as faulty is dropped instead of voting against correct sources.
     if (check.decimalSlip) {
-      // The faulty value is known: drop it instead of letting it vote against correct sources.
       addFlag(flags, "decimal_slip_suspected");
-      notes.push(`decimal_slip_dropped:${check.decimalSlip.key}`);
+      notes.push(`decimal_slip_suspected:${check.decimalSlip.key}`);
       delete values[check.decimalSlip.key];
       delete qualifiers[check.decimalSlip.key];
+    }
+    for (const key of check.zeroSuspects ?? []) {
+      addFlag(flags, "zero_suspected");
+      notes.push(`zero_suspected:${key}`);
+      delete values[key];
+      delete qualifiers[key];
     }
   }
 

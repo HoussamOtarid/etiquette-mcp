@@ -85,6 +85,26 @@ describe("self-check", () => {
     expect(result.decimalSlip).toEqual({ key: "fat_g", stated: 1.3, likely: 13 });
   });
 
+  it("blames a zero macro instead of suspecting a decimal slip", () => {
+    const result = selfCheck({ energy_kcal: 120, fat_g: 4, carbohydrates_g: 15, protein_g: 0 });
+    expect(result.status).toBe("fail");
+    expect(result.decimalSlip).toBeUndefined();
+    expect(result.zeroSuspects).toEqual(["protein_g"]);
+  });
+
+  it("catches inconsistent low-energy labels", () => {
+    const lettuce = selfCheck({
+      energy_kcal: 17,
+      fat_g: 0.2,
+      carbohydrates_g: 0,
+      protein_g: 1.2,
+      fiber_g: 1.5,
+    });
+    expect(lettuce.status).toBe("fail");
+    expect(lettuce.zeroSuspects).toEqual(["carbohydrates_g"]);
+    expect(selfCheck({ energy_kcal: 2, fat_g: 0, carbohydrates_g: 0.5, protein_g: 0 }).status).toBe("pass");
+  });
+
   it("reports insufficient data instead of guessing", () => {
     expect(selfCheck({ energy_kcal: 54 }).status).toBe("insufficient");
   });
@@ -178,6 +198,11 @@ describe("decision", () => {
     expect(d.nutrients.fat_g).toMatchObject({ value: 13, agreement: "single" });
     expect(d.confidence.selfCheck.failed).toEqual(["biocoop"]);
     expect(d.confidence.flags).toContain("decimal_slip_suspected");
+    expect(d.confidence.flagDetails).toContainEqual({
+      flag: "decimal_slip_suspected",
+      source: "biocoop",
+      nutrient: "fat_g",
+    });
   });
 
   it("aligns 100 ml and 100 g labels (olive oil)", () => {
@@ -241,6 +266,23 @@ describe("decision", () => {
     ]);
     expect(d.nutrients.energy_kcal).toMatchObject({ value: 352, agreement: "single" });
     expect(d.nutrients.fat_g?.agreement).toBe("strong");
+  });
+
+  it("drops a suspected zero so other sources decide that nutrient", () => {
+    const d = decide([
+      label("naturalia", { kcal: 17, fat: 0.2, carbs: 0, protein: 1.2, fiber: 1.5 }),
+      label("off", { kcal: 17, fat: 0.2, carbs: 2.2, protein: 1.2, fiber: 1.5 }),
+    ]);
+    expect(d.nutrients.carbohydrates_g).toMatchObject({
+      value: 2.2,
+      agreement: "single",
+      supporting: ["off"],
+    });
+    expect(d.confidence.flagDetails).toContainEqual({
+      flag: "zero_suspected",
+      source: "naturalia",
+      nutrient: "carbohydrates_g",
+    });
   });
 
   it("returns medium confidence for one consistent source", () => {

@@ -12,6 +12,8 @@ export type Flag =
   | "basis_unknown"
   | "self_check_failed"
   | "decimal_slip_suspected"
+  | "zero_suspected"
+  | "basis_inferred"
   | "version_drift_suspected"
   | "single_source"
   | "copied_label_collapsed"
@@ -24,6 +26,8 @@ export interface SelfCheckResult {
   kcalFromMacros: number | null;
   /** Nutrient most likely wrong by a factor of 10, when such a correction makes the label consistent. */
   decimalSlip?: { key: NutrientKey; stated: number; likely: number };
+  /** Core macros stated as 0 that would explain the missing energy. */
+  zeroSuspects?: NutrientKey[];
   kjKcalMismatch?: boolean;
 }
 
@@ -42,6 +46,13 @@ export interface NormalizedLabel {
   /** Labels with the same key are copies of each other and count as one vote. */
   independenceKey: string;
   original: SourceLabel;
+}
+
+export interface FlagDetail {
+  flag: string;
+  source: SourceId;
+  nutrient?: NutrientKey;
+  detail?: string;
 }
 
 export type Agreement = "strong" | "weak" | "majority" | "single" | "conflict";
@@ -85,6 +96,8 @@ export interface DecidedLabel {
     independentSources: number;
     selfCheck: { passed: SourceId[]; failed: SourceId[]; insufficient: SourceId[] };
     flags: Flag[];
+    /** Which source (and nutrient, when relevant) raised each per-source flag. */
+    flagDetails: FlagDetail[];
   };
   advice: string;
   perSource: NormalizedLabel[];

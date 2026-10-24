@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { NutritionService } from "../../src/app/nutritionService.ts";
+import { NutritionService, withInferredBasis } from "../../src/app/nutritionService.ts";
 import { loadConfig } from "../../src/config.ts";
 import type { Offer, SourceId, SourceLabel, Tier } from "../../src/domain/types.ts";
 import { Cache } from "../../src/infra/cache.ts";
 import { HealthTracker } from "../../src/infra/health.ts";
+import { RateLimitedError } from "../../src/infra/http.ts";
 import { silentLogger } from "../../src/infra/logger.ts";
 import type { LabelResult, SearchQuery, SourceAdapter } from "../../src/sources/adapter.ts";
 
@@ -162,13 +163,17 @@ describe("NutritionService", () => {
     expect(chosen.confidence?.overall).toBe("medium");
   });
 
-  it("finds products by text, grouped across sources and ranked", async () => {
+  it("finds products by text in shops, keeping Open Food Facts name search as a fallback", async () => {
     const result = await service([off, naturalia, lafourche]).findProduct({
       query: "pain intégral montignac",
     });
     expect(result.query_kind).toBe("text");
     expect(result.products[0]).toMatchObject({ ean: EAN, match: "ean" });
-    expect(result.products[0]?.offers).toHaveLength(3);
+    expect(result.products[0]?.offers.map((o) => o.source).sort()).toEqual(["lafourche", "naturalia"]);
+    expect(result.sources.off).toBeUndefined();
+
+    const offOnly = await service([off]).findProduct({ query: "pain intégral montignac" });
+    expect(offOnly.products[0]?.offers.map((o) => o.source)).toEqual(["off"]);
   });
 
   it("joins offers whose barcode is only on the product page, despite different brand names", async () => {
@@ -220,6 +225,28 @@ describe("NutritionService", () => {
     const result = await service([off, wrong]).getLabel({ product: EAN });
     expect(result.per_source?.map((p) => p.source)).toEqual(["off"]);
     expect(result.notes.join(" ")).toMatch(/another barcode/);
+  });
+
+  it("reports an incomplete result, not a final one, when sources fail", async () => {
+    const limited = fake({
+      id: "off",
+      tier: "A",
+      ean: true,
+      search: () => Promise.reject(new RateLimitedError("world.openfoodfacts.org")),
+    });
+    for (const product of ["3256224221302", "ean:3256224221302"]) {
+      const result = await service([limited]).getLabel({ product });
+      expect(result).toMatchObject({ status: "incomplete", retry_after_s: 30 });
+      expect(result.advice).toMatch(/off \(rate_limited\)/);
+      expect(result.advice).not.toMatch(/expired/);
+    }
+  });
+
+  it("infers a missing basis from the pack unit", () => {
+    const unknown = { ...label("labellevie", 3, 0, 0.5, 0), basis: "unknown" as const };
+    expect(withInferredBasis(unknown, "Ciao (33 cl)")).toMatchObject({ basis: "100ml", basisInferred: true });
+    expect(withInferredBasis(unknown, "sans taille")).toBe(unknown);
+    expect(withInferredBasis(label("off", 230, 1, 44, 6.8), "33 cl").basis).toBe("100g");
   });
 
   it("reports unknown barcodes", async () => {

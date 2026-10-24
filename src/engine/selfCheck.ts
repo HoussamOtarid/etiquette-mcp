@@ -11,15 +11,23 @@ export function kcalFromMacros(values: Values): number | null {
   return 9 * fat + 4 * carbs + 4 * protein + 2 * (values.fiber_g ?? 0);
 }
 
+const MIN_ENERGY_SLACK_KCAL = 5;
+const RELATIVE_ENERGY_SLACK = 0.15;
+
 function energyConsistent(stated: number, computed: number): boolean {
-  return Math.abs(stated - computed) <= Math.max(15, 0.15 * Math.max(stated, computed));
+  return (
+    Math.abs(stated - computed) <=
+    Math.max(MIN_ENERGY_SLACK_KCAL, RELATIVE_ENERGY_SLACK * Math.max(stated, computed))
+  );
 }
 
-const SLIP_CANDIDATES: NutrientKey[] = ["fat_g", "carbohydrates_g", "protein_g"];
+const CORE_MACROS: NutrientKey[] = ["fat_g", "carbohydrates_g", "protein_g"];
 
 /**
  * Checks a label against itself: stated energy vs energy computed from macros, and kJ vs kcal.
- * When the energy check fails, tries a ×10 / ÷10 correction on each macro to spot decimal slips.
+ * When the energy check fails:
+ * - if the stated energy exceeds the macros and a core macro is 0, that 0 is the likely culprit;
+ * - otherwise tries a ×10 / ÷10 correction on each macro to spot decimal slips.
  */
 export function selfCheck(values: Values): SelfCheckResult {
   const stated = values.energy_kcal ?? null;
@@ -47,7 +55,12 @@ export function selfCheck(values: Values): SelfCheckResult {
   }
 
   result.status = "fail";
-  for (const key of SLIP_CANDIDATES) {
+  const zeros = CORE_MACROS.filter((key) => values[key] === 0);
+  if (zeros.length > 0) {
+    if (stated > computed) result.zeroSuspects = zeros;
+    return result;
+  }
+  for (const key of CORE_MACROS) {
     const original = values[key];
     if (original === undefined || original === 0) continue;
     for (const factor of [10, 0.1]) {

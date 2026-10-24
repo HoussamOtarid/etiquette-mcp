@@ -1,10 +1,17 @@
-import { CORE_NUTRIENTS, NUTRIENT_KEYS, type NutrientKey } from "../domain/nutrients.ts";
+import { CORE_NUTRIENTS, isNutrientKey, NUTRIENT_KEYS, type NutrientKey } from "../domain/nutrients.ts";
 import type { SourceId, SourceLabel, Tier } from "../domain/types.ts";
 import { buildAdvice } from "./advice.ts";
 import { alignBasis } from "./basis.ts";
 import { normalizeLabel } from "./normalize.ts";
 import { selfCheck } from "./selfCheck.ts";
-import type { Confidence, DecidedLabel, Flag, NormalizedLabel, NutrientDecision } from "./types.ts";
+import type {
+  Confidence,
+  DecidedLabel,
+  Flag,
+  FlagDetail,
+  NormalizedLabel,
+  NutrientDecision,
+} from "./types.ts";
 import { decideNutrient } from "./vote.ts";
 
 export interface DecideInput {
@@ -35,6 +42,20 @@ function pickNutriscore(labels: NormalizedLabel[]): DecidedLabel["nutriscore"] {
   }
   const [best] = [...counts.entries()].sort((a, b) => b[1].length - a[1].length);
   return best ? { value: best[0], sources: best[1] } : null;
+}
+
+/** Per-source flags with the nutrient or detail recorded in that source's notes ("flag:nutrient"). */
+function flagDetailsOf(label: NormalizedLabel): FlagDetail[] {
+  const fromNotes = label.notes.map((note) => {
+    const [flag = note, rest] = note.split(":");
+    const detail: FlagDetail = { flag, source: label.source };
+    if (rest && isNutrientKey(rest)) detail.nutrient = rest;
+    else if (rest) detail.detail = rest;
+    return detail;
+  });
+  const noted = new Set(fromNotes.map((d) => d.flag));
+  const plain = label.flags.filter((f) => !noted.has(f)).map((flag) => ({ flag, source: label.source }));
+  return [...fromNotes, ...plain];
 }
 
 function confidenceOf(
@@ -113,6 +134,7 @@ export function decideLabel({ labels, productName, tierOf }: DecideInput): Decid
   const failed = aligned.filter((l) => l.selfCheck.status === "fail").map((l) => l.source);
   const insufficient = aligned.filter((l) => l.selfCheck.status === "insufficient").map((l) => l.source);
 
+  const flagDetails = aligned.flatMap((l) => flagDetailsOf(l));
   const overall = confidenceOf(nutrients, independentSources, assembledOk, failed.length === 0);
   const confidence: DecidedLabel["confidence"] = {
     overall,
@@ -120,6 +142,7 @@ export function decideLabel({ labels, productName, tierOf }: DecideInput): Decid
     independentSources,
     selfCheck: { passed, failed, insufficient },
     flags: [...flags],
+    flagDetails,
   };
 
   const extra = aligned.flatMap((l) => l.original.extra.map((e) => ({ ...e, source: l.source })));

@@ -1,5 +1,6 @@
 import type { Config } from "../config.ts";
 import { looksLikeBarcode, normalizeEan } from "../domain/ean.ts";
+import { parseQuantity } from "../domain/quantity.ts";
 import { nameTokens, sameBrand, tokenSimilarity } from "../domain/text.ts";
 import type { Offer, SourceId, SourceLabel, Tier } from "../domain/types.ts";
 import { decideLabel } from "../engine/decide.ts";
@@ -42,6 +43,16 @@ const MAX_RESULTS = 5;
 const SHORT_QUERY_WORDS = 3;
 const MAX_NAME_QUERIES = 4;
 const MAX_EAN_ENRICHMENTS = 5;
+const RETRY_RATE_LIMITED_S = 30;
+const RETRY_DEFAULT_S = 15;
+
+/** A label that does not state its basis gets one from the pack unit (ml → 100 ml, g → 100 g), marked as inferred. */
+export function withInferredBasis(label: SourceLabel, packText: string | null): SourceLabel {
+  if (label.basis !== "unknown") return label;
+  const unit = parseQuantity(packText)?.unit;
+  if (!unit) return label;
+  return { ...label, basis: unit === "ml" ? "100ml" : "100g", basisInferred: true };
+}
 
 /**
  * Queries used to find a known product in a source that cannot search by barcode. Shop search engines often require
@@ -128,24 +139,26 @@ export class NutritionService {
 
     let group: ProductGroup | null = null;
     let others: ProductGroup[] = [];
-    if (ref.startsWith("grp:") || ref.startsWith("ean:")) {
+    const barcode = ref.startsWith("ean:")
+      ? normalizeEan(ref.slice(4))
+      : looksLikeBarcode(ref)
+        ? normalizeEan(ref)
+        : null;
+    if (ref.startsWith("grp:")) {
       group = this.deps.cache.get<ProductGroup>("group", ref) ?? null;
-      if (!group && ref.startsWith("ean:")) {
-        const ean = normalizeEan(ref.slice(4));
-        if (ean) group = (await this.groupsForEan(ean, adapters, deadline, status))[0] ?? null;
-      }
       if (!group)
         return this.empty(
           "not_found",
           status,
           "This product reference has expired. Search again with find_product.",
         );
-    } else if (looksLikeBarcode(ref)) {
-      const ean = normalizeEan(ref);
-      group = ean ? ((await this.groupsForEan(ean, adapters, deadline, status))[0] ?? null) : null;
+    } else if (barcode) {
+      group =
+        this.deps.cache.get<ProductGroup>("group", `ean:${barcode}`) ??
+        (await this.groupsForEan(barcode, adapters, deadline, status))[0] ??
+        null;
       if (!group)
-        return this.empty(
-          "not_found",
+        return this.notFoundOrIncomplete(
           status,
           "No source knows this barcode. Ask the user for the label on the pack.",
         );
@@ -159,7 +172,7 @@ export class NutritionService {
       );
       for (const g of groups.slice(0, MAX_RESULTS)) this.deps.cache.set("group", g.ref, g, GROUP_TTL.hitMs);
       if (groups.length === 0)
-        return this.empty("not_found", status, "No product matches this query in any source.");
+        return this.notFoundOrIncomplete(status, "No product matches this query in any source.");
       if (!isUnambiguous(groups)) {
         return {
           ...this.empty(
@@ -188,6 +201,12 @@ export class NutritionService {
       notes: status.notes,
     };
     if (input.includeRaw !== false) result.per_source = perSourceViews(decided);
+    const retry = this.retryHint(status);
+    if (decided.confidence.overall === "none" && retry) {
+      result.status = "incomplete";
+      result.retry_after_s = retry.seconds;
+      result.advice = `${retry.message} ${result.advice}`;
+    }
     if (decided.confidence.overall === "none" && others.length > 0) {
       result.similar_products = others.map(productView);
       result.notes.push("similar_products are other products (often other brands), not the requested one.");
@@ -243,13 +262,12 @@ export class NutritionService {
     deadline: number,
     status: Statuses,
   ): Promise<ProductGroup[]> {
-    const textAdapters = adapters.filter((a) => a.capabilities.text);
-    const results = await Promise.all(
-      textAdapters.map((a) =>
-        this.search(a, { text: input.query, brand: input.brand, limit: MAX_RESULTS }, deadline, status),
-      ),
-    );
-    const offers = results.flat();
+    const query = { text: input.query, brand: input.brand, limit: MAX_RESULTS };
+    const shops = adapters.filter((a) => a.capabilities.text && a.id !== "off");
+    const offers = (await Promise.all(shops.map((a) => this.search(a, query, deadline, status)))).flat();
+    // Open Food Facts name search is heavily rate limited; keep its quota for barcode lookups unless shops found nothing.
+    const off = adapters.find((a) => a.id === "off" && a.capabilities.text);
+    if (offers.length === 0 && off) offers.push(...(await this.search(off, query, deadline, status)));
     const ranked = rankGroups(groupOffers(offers, this.tierOf), {
       query: input.query,
       brand: input.brand,
@@ -390,9 +408,26 @@ export class NutritionService {
         status.notes.push(`${o.offer.source} page shows another barcode (${o.ean}); its label was ignored.`);
         continue;
       }
-      labels.push(o.label);
+      labels.push(withInferredBasis(o.label, o.offer.sizeText ?? group.sizeText ?? o.offer.name));
     }
     return labels;
+  }
+
+  /** When sources failed, an empty answer is not final: say so and suggest when to retry. */
+  private retryHint(status: Statuses): { seconds: number; message: string } | null {
+    const failed = Object.entries(status.sources).filter(
+      ([, s]) => s === "timeout" || s === "rate_limited" || s === "error",
+    );
+    if (failed.length === 0) return null;
+    const seconds = failed.some(([, s]) => s === "rate_limited") ? RETRY_RATE_LIMITED_S : RETRY_DEFAULT_S;
+    const list = failed.map(([source, s]) => `${source} (${s})`).join(", ");
+    return { seconds, message: `Incomplete: ${list} did not answer. Retry in about ${seconds} s.` };
+  }
+
+  private notFoundOrIncomplete(status: Statuses, advice: string): GetLabelResult {
+    const retry = this.retryHint(status);
+    if (!retry) return this.empty("not_found", status, advice);
+    return { ...this.empty("incomplete", status, retry.message), retry_after_s: retry.seconds };
   }
 
   private empty(kind: GetLabelResult["status"], status: Statuses, advice: string): GetLabelResult {

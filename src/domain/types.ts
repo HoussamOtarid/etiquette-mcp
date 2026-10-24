@@ -41,6 +41,8 @@ export type ParseStatus = "ok" | "partial" | "empty";
 export interface SourceLabel {
   source: SourceId;
   basis: Basis;
+  /** The basis was not on the label and was inferred from the pack unit. */
+  basisInferred?: boolean;
   values: Partial<Record<NutrientKey, NutrientValue>>;
   /** Sodium in grams per 100 g/ml, when the label gives sodium. */
   sodiumG?: number;

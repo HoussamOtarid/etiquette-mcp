@@ -64,7 +64,9 @@ export interface PerSourceView {
 }
 
 export interface GetLabelResult {
-  status: "found" | "ambiguous" | "not_found";
+  /** "incomplete": some sources did not answer, so an empty or partial result is not final (see retry_after_s). */
+  status: "found" | "ambiguous" | "not_found" | "incomplete";
+  retry_after_s?: number;
   product: ProductView | null;
   label: {
     basis: Basis;
@@ -78,6 +80,7 @@ export interface GetLabelResult {
     missing_nutrients: NutrientKey[];
     self_check: { passed: SourceId[]; failed: SourceId[]; insufficient: SourceId[] };
     flags: Flag[];
+    flag_details: Array<{ flag: string; source: SourceId; nutrient?: NutrientKey; detail?: string }>;
   } | null;
   advice: string;
   ingredients: { text: string; source: SourceId } | null;

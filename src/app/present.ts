@@ -58,6 +58,7 @@ export function labelSection(
       missing_nutrients: d.missing,
       self_check: d.confidence.selfCheck,
       flags: d.confidence.flags,
+      flag_details: d.confidence.flagDetails,
     },
     advice: d.advice,
     ingredients: d.ingredients,

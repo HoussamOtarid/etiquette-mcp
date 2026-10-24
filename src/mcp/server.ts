@@ -29,9 +29,10 @@ export function buildMcpServer(service: NutritionService): McpServer {
   const server = new McpServer(SERVER_INFO, {
     instructions:
       "Nutrition labels for food products sold in France, cross-checked across several shops and Open Food Facts. " +
-      "Use get_label with a barcode or a product description; if it returns candidates, ask the user which one and " +
-      "call get_label again with that product_ref. Values are per 100 g or 100 ml (see label.basis). " +
-      "Follow the advice field: it says how far the label can be trusted.",
+      "Use get_label with a barcode (no product_ref needed) or a product description; if it returns candidates, ask " +
+      "the user which one and call get_label again with that product_ref. Values are per 100 g or 100 ml (see " +
+      "label.basis). Follow the advice field: it says how far the label can be trusted. status 'incomplete' means " +
+      "some sources did not answer yet: retry after retry_after_s instead of treating the result as final.",
   });
 
   server.registerTool(
@@ -69,9 +70,10 @@ export function buildMcpServer(service: NutritionService): McpServer {
       title: "Get the best nutrition label",
       description:
         "Returns the best-supported nutrition label for one product: per-nutrient value with how many sources agree, " +
-        "an overall confidence, flags (self-check failures, outdated labels, missing nutrients), advice, ingredients, " +
-        "allergens, prices per store, and each source's structured and raw label (which may list extra nutrients). " +
-        "Accepts a product_ref from find_product, a barcode, or a product description (returns candidates if ambiguous).",
+        "an overall confidence, flags (with confidence.flag_details naming the source and nutrient), advice, " +
+        "ingredients, allergens, prices per store, and each source's structured and raw label (which may list extra " +
+        "nutrients). Accepts a barcode directly, a product_ref from find_product, or a product description (returns " +
+        "candidates if ambiguous). status 'incomplete' means sources timed out or were rate limited: retry later.",
       inputSchema: {
         product: z
           .string()

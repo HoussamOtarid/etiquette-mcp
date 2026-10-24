@@ -41,6 +41,14 @@ export function buildAdvice({ nutrients, missing, confidence }: AdviceInput): st
     parts.push("The combined label does not add up (energy vs macros); treat it with caution.");
   }
 
+  if (flags.includes("basis_unknown")) {
+    parts.push(
+      "The label does not say whether values are per 100 g or 100 ml; check before scaling to a portion.",
+    );
+  } else if (flags.includes("basis_inferred")) {
+    parts.push("The per-100 basis was inferred from the pack unit (g or ml), not stated on the label.");
+  }
+
   const missingCore = missing.filter((k) => CORE_NUTRIENTS.includes(k));
   if (missingCore.length > 0) {
     parts.push(`Missing everywhere: ${missingCore.map((k) => NUTRIENT_LABELS_FR[k]).join(", ")}.`);
