@@ -17,7 +17,7 @@ import { BarcodeBatcher } from "./barcodeBatcher.ts";
 import { cachedSearch, setNumber } from "./shared.ts";
 
 /** API v3.6: the current version, returning the new nutrition structure (v2 is deprecated). */
-const PRODUCT_URL = "https://world.openfoodfacts.org/api/v3.6/product";
+export const PRODUCT_URL = "https://world.openfoodfacts.org/api/v3.6/product";
 const MAX_QUEUED_BATCH = 50;
 const SEARCH_URL = "https://search.openfoodfacts.org/search";
 const FIELDS = [

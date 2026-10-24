@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest";
 import { parseKazidomiProduct } from "../../src/sources/kazidomi.ts";
 import { KazidomiIndex, parseSitemap } from "../../src/sources/kazidomiIndex.ts";
 import { extractAlgoliaCredentials, parseLaFourcheHit } from "../../src/sources/laFourche.ts";
-import { parseOffProduct, parseOffSearch } from "../../src/sources/openFoodFacts.ts";
+import { PRODUCT_URL, parseOffProduct, parseOffSearch } from "../../src/sources/openFoodFacts.ts";
+import { HOST_LIMITS } from "../../src/sources/registry.ts";
 
 const text = (path: string) => readFileSync(new URL(`../fixtures/${path}`, import.meta.url), "utf8");
 const json = <T>(path: string) => JSON.parse(text(path)) as T;
@@ -166,5 +167,13 @@ describe("Kazidomi", () => {
     index.rememberEan("5411788047258", 367);
     expect(index.idForEan("5411788047258")).toBe(367);
     expect(index.isStale()).toBe(false);
+  });
+});
+
+describe("Open Food Facts pacing", () => {
+  it("applies the product-read quota to the product endpoint in use", () => {
+    const path = `${PRODUCT_URL}/3017620422003`.replace(/^https:\/\//, "");
+    const key = Object.keys(HOST_LIMITS).find((k) => path.startsWith(k));
+    expect(key && HOST_LIMITS[key as keyof typeof HOST_LIMITS]).toEqual({ intervalMs: 4200, concurrency: 1 });
   });
 });

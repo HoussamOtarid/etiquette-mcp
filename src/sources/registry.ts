@@ -7,7 +7,7 @@ import { LaBelleVieAdapter } from "./laBelleVie.ts";
 import { LaFourcheAdapter } from "./laFourche.ts";
 import { LaVieClaireAdapter } from "./laVieClaire.ts";
 import { NaturaliaAdapter } from "./naturalia.ts";
-import { OpenFoodFactsAdapter } from "./openFoodFacts.ts";
+import { OpenFoodFactsAdapter, PRODUCT_URL } from "./openFoodFacts.ts";
 
 export function createAdapters(deps: AdapterDeps): SourceAdapter[] {
   const all: SourceAdapter[] = [
@@ -25,9 +25,8 @@ export function createAdapters(deps: AdapterDeps): SourceAdapter[] {
 
 /** Per-host politeness limits (requests are spaced; a few run concurrently at most). */
 export const HOST_LIMITS = {
-  // Documented quotas: 15 product reads and 10 searches per minute per IP; the batch endpoint is a search.
-  "world.openfoodfacts.org/api/v2/product": { intervalMs: 4200, concurrency: 1 },
-  "world.openfoodfacts.org/api/v2/search": { intervalMs: 6500, concurrency: 1 },
+  // Documented quotas: 15 product reads and 10 searches per minute per IP.
+  [PRODUCT_URL.replace(/^https:\/\//, "")]: { intervalMs: 4200, concurrency: 1 },
   "world.openfoodfacts.org": { intervalMs: 6500, concurrency: 1 },
   "search.openfoodfacts.org": { intervalMs: 6500, concurrency: 1 },
   "lafourche.fr": { intervalMs: 2000, concurrency: 1 },
