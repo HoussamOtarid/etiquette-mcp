@@ -6,6 +6,7 @@ import {
   brandInQuery,
   brandSlug,
   nameTokens,
+  normalizeText,
   oneNameContainsTheOther,
   percentagesOf,
   sameBrand,
@@ -83,6 +84,8 @@ describe("text", () => {
     expect(tokenSimilarity("Céréales muesli", "muesli cereales")).toBe(1);
     expect(tokenSimilarity("musli croustillant", "Muesli croustillant")).toBe(1);
     expect(tokenSimilarity("Spaghetti complets", "Spaghetti demi complètes")).toBeGreaterThan(0.6);
+    expect(tokenSimilarity("Steak haché pur bœuf", "steak hache pur boeuf")).toBe(1);
+    expect(normalizeText("Œufs frais")).toBe("oeufs frais");
   });
 
   it("scores name similarity", () => {

@@ -24,9 +24,11 @@ const STOPWORDS = new Set([
   "x",
 ]);
 
-/** Lowercase, strip accents and punctuation, collapse spaces. */
+/** Lowercase, strip accents and punctuation, collapse spaces. Ligatures are spelled out (bœuf → boeuf). */
 export function normalizeText(text: string | null | undefined): string {
   return (text ?? "")
+    .replace(/[œŒ]/g, "oe")
+    .replace(/[æÆ]/g, "ae")
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
