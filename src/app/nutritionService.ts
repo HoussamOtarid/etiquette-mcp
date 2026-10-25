@@ -608,11 +608,13 @@ export class NutritionService {
     status: Statuses,
   ): Promise<ProductGroup[]> {
     const query = { text: input.query, brand: input.brand, limit: MAX_RESULTS };
-    const shops = adapters.filter((a) => a.capabilities.text && a.id !== "off");
-    const offers = (await Promise.all(shops.map((a) => this.search(a, query, deadline, status)))).flat();
-    // Open Food Facts name search is heavily rate limited: only use it when the shops did not find the product.
     const off = adapters.find((a) => a.id === "off" && a.capabilities.text);
-    if (off && !shopsFoundIt(offers, input.query, input.brand)) {
+    // With a local copy, Open Food Facts answers name searches instantly; online, its search is heavily rate limited,
+    // so it is only used when the shops did not find the product.
+    const offIsLocal = Boolean(off?.localCopy?.());
+    const first = adapters.filter((a) => a.capabilities.text && (a.id !== "off" || offIsLocal));
+    const offers = (await Promise.all(first.map((a) => this.search(a, query, deadline, status)))).flat();
+    if (off && !offIsLocal && !shopsFoundIt(offers, input.query, input.brand)) {
       offers.push(...(await this.search(off, query, deadline, status)));
     }
     const ranked = rankGroups(groupOffers(offers, this.tierOf), {

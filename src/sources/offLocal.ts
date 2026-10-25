@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { nameTokens, normalizeText } from "../domain/text.ts";
 import type { OffProduct } from "./openFoodFacts.ts";
 
 export interface LocalCopyStatus {
@@ -14,6 +15,8 @@ export interface LocalCopyStatus {
 /** Read side of the local Open Food Facts copy, as used by the adapter. */
 export interface OffLocalReader {
   get(code: string): OffProduct | null;
+  /** Products whose name (and brand, when given) contain every word of the query, products sold in France first. */
+  search(text: string, brand: string | undefined, limit: number): OffProduct[];
   status(): LocalCopyStatus | null;
 }
 
@@ -63,12 +66,32 @@ export function removeStaleCopies(dataDir: string): string[] {
  * Shape of the stored products. A copy built in another shape (older server version) is not used: the server answers
  * from the API and rebuilds it. Bump when trimOffProduct changes what it stores.
  */
-export const COPY_FORMAT = 4;
+export const COPY_FORMAT = 5;
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS products (code TEXT PRIMARY KEY, doc TEXT NOT NULL, modified INTEGER NOT NULL) STRICT;
   CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
+  CREATE VIRTUAL TABLE IF NOT EXISTS product_search USING fts5(name, brands, france UNINDEXED);
 `;
+
+/** Index entry of a product: normalised name and brands (as queries are), and whether it is sold in France. */
+function searchEntry(p: OffProduct): [string, string, number] {
+  return [
+    normalizeText(p.product_name_fr ?? p.product_name),
+    normalizeText(Array.isArray(p.brands) ? p.brands.join(" ") : p.brands),
+    p.countries_tags?.includes("en:france") ? 1 : 0,
+  ];
+}
+
+/**
+ * Full-text query: every word of the text as a prefix (plurals, longer forms), and the brand's words as whole words
+ * in the brands column (a short brand like "Lu" must not match "Lucky").
+ */
+export function matchExpression(text: string, brand: string | undefined): string | null {
+  const terms = nameTokens(text).map((t) => `"${t}"*`);
+  for (const t of normalizeText(brand).split(" ")) if (t) terms.push(`brands : "${t}"`);
+  return terms.length > 0 ? terms.join(" ") : null;
+}
 
 /** Opens (and creates if needed) a copy for writing. */
 export function openForWrite(path: string, { bulk = false } = {}): DatabaseSync {
@@ -80,16 +103,28 @@ export function openForWrite(path: string, { bulk = false } = {}): DatabaseSync 
   return db;
 }
 
-/** Inserts or replaces products, keeping the stored version when it is newer than the incoming one. */
+/**
+ * Inserts or replaces products, keeping the stored version when it is newer than the incoming one, and keeps their
+ * search entries in step.
+ */
 export function upsertProducts(db: DatabaseSync, products: OffProduct[]): void {
-  const statement = db.prepare(
+  const upsert = db.prepare(
     `INSERT INTO products (code, doc, modified) VALUES (?, ?, ?)
      ON CONFLICT (code) DO UPDATE SET doc = excluded.doc, modified = excluded.modified
      WHERE excluded.modified >= products.modified`,
   );
+  const rowid = db.prepare("SELECT rowid FROM products WHERE code = ?");
+  const unindex = db.prepare("DELETE FROM product_search WHERE rowid = ?");
+  const index = db.prepare("INSERT INTO product_search (rowid, name, brands, france) VALUES (?, ?, ?, ?)");
   db.exec("BEGIN");
   try {
-    for (const p of products) statement.run(p.code ?? "", JSON.stringify(p), p.last_modified_t ?? 0);
+    for (const p of products) {
+      const code = p.code ?? "";
+      if (upsert.run(code, JSON.stringify(p), p.last_modified_t ?? 0).changes === 0) continue;
+      const row = rowid.get(code) as { rowid: number };
+      unindex.run(row.rowid);
+      index.run(row.rowid, ...searchEntry(p));
+    }
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
@@ -144,6 +179,18 @@ export class OffLocalStore implements OffLocalReader {
       | { doc: string }
       | undefined;
     return row ? (JSON.parse(row.doc) as OffProduct) : null;
+  }
+
+  search(text: string, brand: string | undefined, limit: number): OffProduct[] {
+    const match = matchExpression(text, brand);
+    if (!this.db || !match) return [];
+    const rows = this.db
+      .prepare(
+        `SELECT p.doc FROM product_search s JOIN products p ON p.rowid = s.rowid
+         WHERE product_search MATCH ? ORDER BY s.france DESC, bm25(product_search, 1.0, 2.0) LIMIT ?`,
+      )
+      .all(match, limit) as Array<{ doc: string }>;
+    return rows.map((r) => JSON.parse(r.doc) as OffProduct);
   }
 
   status(): LocalCopyStatus | null {

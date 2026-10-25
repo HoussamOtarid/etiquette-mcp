@@ -37,6 +37,7 @@ export const PRODUCT_FIELDS = [
   "data_sources_tags",
   "last_modified_t",
   "lang",
+  "countries_tags",
 ] as const;
 const FIELDS = PRODUCT_FIELDS.join(",");
 
@@ -56,6 +57,7 @@ export interface OffProduct {
   data_sources_tags?: string[];
   last_modified_t?: number;
   lang?: string;
+  countries_tags?: string[];
   /** Nutrition facts: one value per nutrient, per `aggregated_set.per`, with its unit, modifier and source. */
   nutrition?: {
     aggregated_set?: {
@@ -219,6 +221,8 @@ export class OpenFoodFactsAdapter implements SourceAdapter {
       return offer ? [offer] : [];
     }
     if (!query.text) return [];
+    const local = this.searchLocalCopy(query.text, query.brand, query.limit);
+    if (local) return local;
     return cachedSearch(this.deps, this.id, query, async () => {
       const q = query.brand ? `${query.text} brands_tags:"${brandSlug(query.brand)}"` : (query.text ?? "");
       const url = `${SEARCH_URL}?${new URLSearchParams({ q, langs: "fr", page_size: String(query.limit), fields: "code,product_name,brands,quantity" })}`;
@@ -235,6 +239,17 @@ export class OpenFoodFactsAdapter implements SourceAdapter {
 
   localCopy(): LocalCopyStatus | null {
     return this.deps.offLocal?.status() ?? null;
+  }
+
+  /** Name search in the local copy, with labels; null when there is no copy (or it fails), to use the online search. */
+  private searchLocalCopy(text: string, brand: string | undefined, limit: number): Offer[] | null {
+    if (!this.deps.offLocal?.status()) return null;
+    try {
+      return this.deps.offLocal.search(text, brand, limit).flatMap((p) => parseOffProduct(p) ?? []);
+    } catch (error) {
+      this.deps.logger.warn("off local copy: search failed", { error: String(error) });
+      return null;
+    }
   }
 
   /** The local copy answers first; a miss (product added since the last import) or an error falls back to the API. */

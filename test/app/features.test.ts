@@ -219,6 +219,28 @@ describe("service features", () => {
     );
   });
 
+  it("searches Open Food Facts on every text query when it has a local copy", async () => {
+    const shop = fake("lafourche", "A", () => [offer("lafourche", "Boisson avoine 1L", { brand: "X" })]);
+    const offSearch = vi.fn(async (_query: SearchQuery) => [
+      offer("off", "Boisson avoine", { brand: "X", ean: "3760324840986" }),
+    ]);
+    const off = (local: boolean): SourceAdapter => ({
+      id: "off",
+      tier: "A",
+      displayName: "off",
+      capabilities: { text: true, ean: true },
+      search: offSearch,
+      getLabel: async () => ({ label: null }),
+      localCopy: () => (local ? { products: 1, full_import_at: null, updated_at: null } : null),
+    });
+    const textSearches = () => offSearch.mock.calls.filter(([q]) => q.text !== undefined).length;
+    await service([shop, off(true)]).findProduct({ query: "boisson avoine", brand: "X" });
+    expect(textSearches()).toBe(1);
+    offSearch.mockClear();
+    await service([shop, off(false)]).findProduct({ query: "boisson avoine", brand: "X" });
+    expect(textSearches()).toBe(0);
+  });
+
   it("uses a brand written in the query and drops unrelated products", async () => {
     const shops = fake("labellevie", "C", () => [
       offer("labellevie", "Steak haché pur bœuf 5%", { brand: "Bonval", ean: "3760099539001" }),

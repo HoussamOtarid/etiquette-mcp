@@ -64,10 +64,10 @@ anonymous: no cookies, no accounts, and a user agent that only names the project
 Facts, which asks API clients to identify themselves). Each source is paced to its documented limits or a polite rate,
 and results are cached in SQLite.
 
-With `OFF_LOCAL_DB=true`, barcodes are answered from a local copy of the whole Open Food Facts database kept in
-`DATA_DIR` (about 4 GB, twice that while it is rebuilt), with the API as fallback for products added since the last
-update. The server builds the copy itself on first start (about an hour, in the background, answering from the API
-meanwhile), applies the daily updates and rebuilds it monthly; `list_sources` shows its state.
+With `OFF_LOCAL_DB=true`, barcodes and product names are looked up in a local copy of the whole Open Food Facts
+database kept in `DATA_DIR` (about 4.5 GB, twice that while it is rebuilt), with the API as fallback for products
+added since the last update. The server builds the copy itself on first start (about an hour, in the background,
+answering from the API meanwhile), applies the daily updates and rebuilds it monthly; `list_sources` shows its state.
 
 ## Running
 

@@ -20,6 +20,7 @@ import {
   COPY_FORMAT,
   currentCopyPath,
   META,
+  matchExpression,
   newCopyPath,
   type OffLocalReader,
   OffLocalStore,
@@ -110,6 +111,7 @@ describe("Open Food Facts local copy", () => {
       ingredients_text: "sugar, hazelnuts",
       ingredients_lc: "en",
       last_modified_t: 100,
+      countries_tags: ["en:france"],
       nutrition: {
         aggregated_set: {
           per: "100g",
@@ -270,6 +272,46 @@ describe("Open Food Facts local copy", () => {
     store.close();
   });
 
+  it("searches names and brands, products sold in France first, and follows daily updates", async () => {
+    expect(matchExpression("Bonval bœuf haché 5%", undefined)).toBe('"bonval"* "boeuf"* "hache"*');
+    expect(matchExpression("macaroni complet", "Priméal")).toBe('"macaroni"* "complet"* brands : "primeal"');
+    expect(matchExpression("5%", undefined)).toBeNull();
+
+    const dataDir = dir();
+    const abroad = { ...doc(EAN_C, "Pâte à tartiner noisettes", 530, 100), countries_tags: ["en:germany"] };
+    const france = {
+      ...doc(EAN_A, "Pâte à tartiner noisettes cacao", 539, 100),
+      countries_tags: ["en:france"],
+    };
+    const other = { ...doc(EAN_B, "Boisson avoine", 48, 100), brands: "Lima" };
+    await importWorld(dataDir, [abroad, france, other]);
+    const store = new OffLocalStore(dataDir);
+    expect(store.search("pate tartiner", undefined, 5).map((p) => p.code)).toEqual([EAN_A, EAN_C]);
+    expect(store.search("tartiner", "Lima", 5)).toEqual([]);
+    expect(store.search("avoine", "Lima", 5).map((p) => p.code)).toEqual([EAN_B]);
+    expect(store.search("avoine", "Li", 5)).toEqual([]);
+    store.close();
+
+    const s = Math.floor(clock / 1000);
+    const delta = `openfoodfacts_products_${s}_${s + 86_400}.json.gz`;
+    clock += 3_600_000;
+    await applyDeltas({
+      dataDir,
+      userAgent: "t",
+      now,
+      fetch: stubFetch({
+        [`${DELTA_URL}index.txt`]: delta,
+        [`${DELTA_URL}${delta}`]: jsonlGz([
+          { ...other, product_name: "Lait d'avoine", last_modified_t: 900 },
+        ]),
+      }),
+    });
+    store.reopen();
+    expect(store.search("lait avoine", undefined, 5).map((p) => p.code)).toEqual([EAN_B]);
+    expect(store.search("boisson", undefined, 5)).toEqual([]);
+    store.close();
+  });
+
   it("schedules a full import, daily updates and retries", () => {
     const day = 86_400_000;
     const t = 100 * day;
@@ -312,6 +354,7 @@ describe("Open Food Facts adapter with a local copy", () => {
     vi.stubGlobal("fetch", fetchMock);
     const local: OffLocalReader = {
       get: (code) => (code === EAN_A ? trimOffProduct(doc(EAN_A, "Nutella", 539, 100)) : null),
+      search: () => [],
       status: () => ({ products: 1, full_import_at: null, updated_at: null }),
     };
     const off = adapter(local);
@@ -325,8 +368,29 @@ describe("Open Food Facts adapter with a local copy", () => {
       get: () => {
         throw new Error("disk error");
       },
+      search: () => [],
       status: () => null,
     });
     expect((await broken.search({ ean: EAN_C, limit: 1 }))[0]?.name).toBe("From API");
+  });
+
+  it("searches names in the local copy with labels, and online without a copy", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({ hits: [{ code: EAN_C, product_name: "Online result", brands: "B" }] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const local = adapter({
+      get: () => null,
+      search: (text, brand) =>
+        text === "nutella" && !brand ? [trimOffProduct(doc(EAN_A, "Nutella", 539, 100)) ?? {}] : [],
+      status: () => ({ products: 1, full_import_at: null, updated_at: null }),
+    });
+    const [found] = await local.search({ text: "nutella", limit: 5 });
+    expect(found).toMatchObject({ name: "Nutella", ean: EAN_A });
+    expect(found?.label?.values.energy_kcal?.value).toBe(539);
+    expect(fetchMock).not.toHaveBeenCalled();
+    const online = adapter({ get: () => null, search: () => [], status: () => null });
+    expect((await online.search({ text: "nutella", limit: 5 }))[0]?.name).toBe("Online result");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
