@@ -66,7 +66,7 @@ Facts, which asks API clients to identify themselves). Each source is paced to i
 and results are cached in SQLite.
 
 With `OFF_LOCAL_DB=true`, barcodes and product names are looked up in a local copy of the whole Open Food Facts
-database kept in `DATA_DIR` (about 4.5 GB, twice that while it is rebuilt), with the API as fallback for products
+database kept in `DATA_DIR` (about 5 GB, twice that while it is rebuilt), with the API as fallback for products
 added since the last update. The server builds the copy itself on first start (about an hour, in the background,
 answering from the API meanwhile), then applies the daily updates and rebuilds it monthly while the current copy keeps
 answering; `list_sources` shows its state.
