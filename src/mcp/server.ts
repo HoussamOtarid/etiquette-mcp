@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { DEFAULT_GENERIC_FOODS, genericFoods, genericFoodsInfo } from "../app/genericFoods.ts";
 import type { NutritionService } from "../app/nutritionService.ts";
 import { SOURCE_IDS } from "../domain/types.ts";
 import { VERSION } from "../version.ts";
@@ -40,7 +41,9 @@ export function buildMcpServer(service: NutritionService): McpServer {
       "label.basis). Follow the advice field: it says how far the label can be trusted. status 'incomplete' means " +
       "some sources did not answer yet: retry after retry_after_s instead of treating the result as final. sources " +
       "lists every source: 'skipped' means it was not needed for this request (e.g. Open Food Facts name search " +
-      "when stores found the product) or the answer came from the cache. Scores range from 0 to 1.",
+      "when stores found the product) or the answer came from the cache. Scores range from 0 to 1. For foods " +
+      "without a pack (fruit, vegetables, meat, home cooking), get_generic_food gives average values from the " +
+      "French food composition table Ciqual.",
   });
 
   server.registerTool(
@@ -191,6 +194,38 @@ export function buildMcpServer(service: NutritionService): McpServer {
   );
 
   server.registerTool(
+    "get_generic_food",
+    {
+      title: "Get average values for a generic food",
+      description:
+        "Average nutrition values for a kind of food (fruit, vegetables, meat, fish, staples, dishes) from Ciqual, " +
+        "the French national food composition table published by ANSES (about 3,500 foods, names in French and " +
+        "English). For foods without a pack or label, e.g. 'banane', 'riz basmati cuit', 'chicken breast'. Not a " +
+        "product's label: use get_label for packaged products. Returns the best matches, each with values per " +
+        "100 g (same keys as ready_to_apply), qualifiers ('lt' = below the value, 'traces') and data_quality " +
+        "(Ciqual confidence code, A best to D).",
+      inputSchema: {
+        query: z.string().min(2).max(160).describe("Food name, ideally with its state, e.g. 'pomme crue'"),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(10)
+          .optional()
+          .describe(`Number of foods (default ${DEFAULT_GENERIC_FOODS})`),
+      },
+      annotations: { title: "Get average values for a generic food", ...readOnly, openWorldHint: false },
+    },
+    async ({ query, limit }) => {
+      try {
+        return respond(genericFoods(query, limit));
+      } catch (error) {
+        return failure(error);
+      }
+    },
+  );
+
+  server.registerTool(
     "list_sources",
     {
       title: "List data sources",
@@ -200,7 +235,12 @@ export function buildMcpServer(service: NutritionService): McpServer {
       inputSchema: {},
       annotations: { title: "List data sources", ...readOnly, openWorldHint: false },
     },
-    async () => respond({ server_version: SERVER_INFO.version, sources: service.listSources() }),
+    async () =>
+      respond({
+        server_version: SERVER_INFO.version,
+        sources: service.listSources(),
+        generic_foods: genericFoodsInfo(),
+      }),
   );
 
   return server;

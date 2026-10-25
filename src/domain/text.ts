@@ -52,11 +52,22 @@ interface Token {
   stem: string;
 }
 
+/** Stemming dominates matching time and the same names come back often (shop listings, the Ciqual table). */
+const tokenCache = new Map<string, Token[]>();
+const TOKEN_CACHE_SIZE = 20_000;
+
 function tokensOf(text: string | null | undefined): Token[] {
-  const seen = new Set<string>();
-  return nameTokens(text)
-    .map((raw) => ({ raw, stem: frenchStemmer.stem(raw) }))
-    .filter((t) => !seen.has(t.stem) && seen.add(t.stem));
+  const key = text ?? "";
+  let tokens = tokenCache.get(key);
+  if (!tokens) {
+    const seen = new Set<string>();
+    tokens = nameTokens(key)
+      .map((raw) => ({ raw, stem: frenchStemmer.stem(raw) }))
+      .filter((t) => !seen.has(t.stem) && seen.add(t.stem));
+    if (tokenCache.size >= TOKEN_CACHE_SIZE) tokenCache.clear();
+    tokenCache.set(key, tokens);
+  }
+  return [...tokens];
 }
 
 /** Same word: same stem (plural, gender), or the written words are one edit apart (typo). */
@@ -91,6 +102,29 @@ export function oneNameContainsTheOther(a: string | null | undefined, b: string 
   const tb = tokensOf(b);
   const within = (x: Token[], y: Token[]) => x.every((t) => y.some((u) => sameToken(t, u)));
   return within(ta, tb) || within(tb, ta);
+}
+
+/**
+ * How well a text covers a query: query words found in the text (by stem or a one-letter typo), how many of those are
+ * written the same ("pâtes", not "pâte"), out of all query words, and the text's other words.
+ */
+export function wordMatch(
+  query: string | null | undefined,
+  text: string | null | undefined,
+): { found: number; exact: number; wanted: number; extra: number } {
+  const wanted = tokensOf(query);
+  const unmatched = tokensOf(text);
+  const total = unmatched.length;
+  let found = 0;
+  let exact = 0;
+  for (const token of wanted) {
+    const i = unmatched.findIndex((other) => sameToken(token, other));
+    if (i < 0) continue;
+    found++;
+    if (unmatched[i]?.raw === token.raw) exact++;
+    unmatched.splice(i, 1);
+  }
+  return { found, exact, wanted: wanted.length, extra: total - found };
 }
 
 /** Open Food Facts style tag: "Prix Mini" → "prix-mini", "Côteaux Nantais" → "coteaux-nantais". */

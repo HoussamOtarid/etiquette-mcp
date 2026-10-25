@@ -1,6 +1,6 @@
 {
   "name": "etiquette-mcp",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "private": true,
   "description": "MCP server that looks up a food product across several French grocery sources and returns the best-supported nutrition label with agreement indicators.",
   "license": "MIT",
@@ -23,6 +23,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "smoke": "node scripts/smoke.ts",
+    "ciqual": "node scripts/ciqual.ts",
     "eval": "node scripts/eval.ts",
     "check": "npm run typecheck && npm run lint && npm test"
   },
@@ -37,6 +38,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.6.2",
     "@types/node": "24.19.2",
+    "fast-xml-parser": "5.11.2",
     "typescript": "7.0.2",
     "vitest": "5.0.5"
   }

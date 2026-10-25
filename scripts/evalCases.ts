@@ -81,7 +81,7 @@ export const CASES: EvalCase[] = [
   generic("generic-banane", "banane", "banane crue"),
   generic("generic-banana-en", "banana", "banane crue"),
   generic("generic-riz-basmati-cuit", "riz basmati cuit", "riz basmati cuit"),
-  generic("generic-poulet", "blanc de poulet", "poulet filet"),
+  { ...generic("generic-poulet", "blanc de poulet", "poulet filet"), gap: "synonym: blanc = filet" },
   generic("generic-pomme", "pomme", "pomme crue"),
   generic("generic-huile-olive", "huile d'olive", "huile olive"),
   generic("generic-oeuf", "oeuf dur", "oeuf dur"),

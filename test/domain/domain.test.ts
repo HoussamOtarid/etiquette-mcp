@@ -12,6 +12,7 @@ import {
   sameBrand,
   sharesWordBesidesBrand,
   tokenSimilarity,
+  wordMatch,
 } from "../../src/domain/text.ts";
 
 describe("ean", () => {
@@ -86,6 +87,17 @@ describe("text", () => {
     expect(tokenSimilarity("Spaghetti complets", "Spaghetti demi complètes")).toBeGreaterThan(0.6);
     expect(tokenSimilarity("Steak haché pur bœuf", "steak hache pur boeuf")).toBe(1);
     expect(normalizeText("Œufs frais")).toBe("oeufs frais");
+  });
+
+  it("measures how much of a query a text covers", () => {
+    expect(wordMatch("pâtes cuites", "Pâtes sèches, standard, cuites")).toEqual({
+      found: 2,
+      exact: 2,
+      wanted: 2,
+      extra: 2,
+    });
+    expect(wordMatch("pâtes cuites", "Pâte brisée cuite")).toMatchObject({ found: 2, exact: 0, extra: 1 });
+    expect(wordMatch("", "Pain")).toMatchObject({ found: 0, wanted: 0 });
   });
 
   it("scores name similarity", () => {

@@ -101,6 +101,7 @@ describe("MCP over HTTP", () => {
     expect(tools.map((t) => t.name).sort()).toEqual([
       "compare_prices",
       "find_product",
+      "get_generic_food",
       "get_label",
       "get_labels",
       "list_sources",
@@ -117,7 +118,18 @@ describe("MCP over HTTP", () => {
     expect(data.label.nutrients.energy_kcal?.value).toBe(230);
 
     const sources = await client.callTool({ name: "list_sources", arguments: {} });
-    expect(sources.structuredContent).toMatchObject({ server_version: SERVER_INFO.version });
+    expect(sources.structuredContent).toMatchObject({
+      server_version: SERVER_INFO.version,
+      generic_foods: { foods: expect.any(Number) },
+    });
+    const generic = await client.callTool({
+      name: "get_generic_food",
+      arguments: { query: "banane", limit: 1 },
+    });
+    expect(generic.structuredContent).toMatchObject({
+      foods: [{ name: "Banane, chair sans peau, crue", basis: "100g" }],
+      source: { name: expect.stringContaining("Ciqual") },
+    });
     await client.close();
   });
 

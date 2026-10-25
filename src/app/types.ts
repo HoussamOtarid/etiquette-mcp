@@ -201,3 +201,24 @@ export interface SourceInfo {
   failures_24h: number;
   p50_ms: number | null;
 }
+
+/** One food of the Ciqual table: average composition for that kind of food, not a product's label. */
+export interface GenericFoodView {
+  ciqual_code: number;
+  name: string;
+  name_en: string;
+  group: string | null;
+  /** Relevance to the query, 0 to 1. */
+  score: number;
+  basis: "100g";
+  per_100: FlatValues;
+  qualifiers: Partial<Record<NutrientKey, Qualifier>>;
+  /** Least reliable Ciqual confidence code of fat, carbohydrates and protein: A (best) to D. */
+  data_quality: string | null;
+}
+
+export interface GenericFoodResult {
+  foods: GenericFoodView[];
+  source: { name: string; version: string; licence: string; url: string };
+  advice: string;
+}
