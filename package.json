@@ -23,6 +23,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "smoke": "node scripts/smoke.ts",
+    "eval": "node scripts/eval.ts",
     "check": "npm run typecheck && npm run lint && npm test"
   },
   "dependencies": {
