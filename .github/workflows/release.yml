@@ -1,6 +1,7 @@
 name: Release
 
-# On a version tag: check, then publish the Docker image to GitHub Container Registry.
+# On a version tag: check, publish the Docker image to GitHub Container Registry, then create the GitHub release.
+# Releases are created for every version tag that has none yet, so earlier versions get theirs too.
 on:
   push:
     tags: ["v*"]
@@ -50,3 +51,35 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  release:
+    needs: image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - name: Create missing releases with notes from the commits
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tags=$(git tag --list 'v*' --sort=version:refname)
+          latest=$(echo "$tags" | tail -n 1)
+          previous=$(git rev-list --max-parents=0 HEAD)
+          for tag in $tags; do
+            if ! gh release view "$tag" > /dev/null 2>&1; then
+              npx --yes git-cliff@2.14.2 --config cliff.toml "$previous..$tag" --strip all > notes.md
+              image="ghcr.io/houssamotarid/etiquette-mcp:${tag#v}"
+              if docker manifest inspect "$image" > /dev/null 2>&1; then
+                printf '\n### Docker image\n\n`%s`\n' "$image" >> notes.md
+              fi
+              if [ "$tag" = "$latest" ]; then latest_flag=--latest; else latest_flag=--latest=false; fi
+              gh release create "$tag" --title "$tag" --notes-file notes.md --verify-tag "$latest_flag"
+            fi
+            previous=$tag
+          done
