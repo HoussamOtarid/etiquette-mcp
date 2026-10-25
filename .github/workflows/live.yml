@@ -22,3 +22,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run smoke -- --check
+        env:
+          # Chronodrive refuses GitHub's runner IPs (HTTP 403); its parsing is covered by the fixture tests, and its
+          # live health by the server's list_sources.
+          DISABLED_SOURCES: chronodrive
