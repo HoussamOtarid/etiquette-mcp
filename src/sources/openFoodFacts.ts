@@ -25,6 +25,9 @@ export const PRODUCT_FIELDS = [
   "code",
   "product_name",
   "product_name_fr",
+  "product_name_en",
+  "generic_name",
+  "generic_name_fr",
   "brands",
   "quantity",
   "nutrition",
@@ -38,6 +41,7 @@ export const PRODUCT_FIELDS = [
   "last_modified_t",
   "lang",
   "countries_tags",
+  "categories_tags",
 ] as const;
 const FIELDS = PRODUCT_FIELDS.join(",");
 
@@ -45,6 +49,9 @@ export interface OffProduct {
   code?: string;
   product_name?: string;
   product_name_fr?: string;
+  product_name_en?: string;
+  generic_name?: string;
+  generic_name_fr?: string;
   brands?: string | string[];
   quantity?: string;
   nutriscore_grade?: string;
@@ -58,6 +65,7 @@ export interface OffProduct {
   last_modified_t?: number;
   lang?: string;
   countries_tags?: string[];
+  categories_tags?: string[];
   /** Nutrition facts: one value per nutrient, per `aggregated_set.per`, with its unit, modifier and source. */
   nutrition?: {
     aggregated_set?: {

@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, w
 import { basename, dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { nameTokens, normalizeText } from "../domain/text.ts";
+import { type CategoryTaxonomy, categoryText } from "./offCategories.ts";
 import type { OffProduct } from "./openFoodFacts.ts";
 
 export interface LocalCopyStatus {
@@ -15,7 +16,10 @@ export interface LocalCopyStatus {
 /** Read side of the local Open Food Facts copy, as used by the adapter. */
 export interface OffLocalReader {
   get(code: string): OffProduct | null;
-  /** Products whose name (and brand, when given) contain every word of the query, products sold in France first. */
+  /**
+   * Products whose names, brands or categories contain every word of the query (and the brand, when given), products
+   * sold in France first.
+   */
   search(text: string, brand: string | undefined, limit: number): OffProduct[];
   status(): LocalCopyStatus | null;
 }
@@ -66,26 +70,31 @@ export function removeStaleCopies(dataDir: string): string[] {
  * Shape of the stored products. A copy built in another shape (older server version) is not used: the server answers
  * from the API and rebuilds it. Bump when trimOffProduct changes what it stores.
  */
-export const COPY_FORMAT = 5;
+export const COPY_FORMAT = 6;
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS products (code TEXT PRIMARY KEY, doc TEXT NOT NULL, modified INTEGER NOT NULL) STRICT;
   CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
-  CREATE VIRTUAL TABLE IF NOT EXISTS product_search USING fts5(name, brands, france UNINDEXED);
+  CREATE VIRTUAL TABLE IF NOT EXISTS product_search USING fts5(name, brands, categories, france UNINDEXED);
 `;
 
-/** Index entry of a product: normalised name and brands (as queries are), and whether it is sold in France. */
-function searchEntry(p: OffProduct): [string, string, number] {
+/**
+ * Index entry of a product, normalised as queries are: its names (French, main language, English, generic names),
+ * brands, the names of its most specific categories, and whether it is sold in France.
+ */
+export function searchEntry(p: OffProduct, taxonomy: CategoryTaxonomy): [string, string, string, number] {
+  const names = [p.product_name_fr, p.product_name, p.product_name_en, p.generic_name_fr, p.generic_name];
   return [
-    normalizeText(p.product_name_fr ?? p.product_name),
+    [...new Set(names.map((n) => normalizeText(n)).filter(Boolean))].join(" "),
     normalizeText(Array.isArray(p.brands) ? p.brands.join(" ") : p.brands),
+    categoryText(p.categories_tags, taxonomy),
     p.countries_tags?.includes("en:france") ? 1 : 0,
   ];
 }
 
 /**
- * Full-text query: every word of the text as a prefix (plurals, longer forms), and the brand's words as whole words
- * in the brands column (a short brand like "Lu" must not match "Lucky").
+ * Full-text query: every word of the text as a prefix (plurals, longer forms) in any column, and the brand's words as
+ * whole words in the brands column (a short brand like "Lu" must not match "Lucky").
  */
 export function matchExpression(text: string, brand: string | undefined): string | null {
   const terms = nameTokens(text).map((t) => `"${t}"*`);
@@ -107,7 +116,7 @@ export function openForWrite(path: string, { bulk = false } = {}): DatabaseSync 
  * Inserts or replaces products, keeping the stored version when it is newer than the incoming one, and keeps their
  * search entries in step.
  */
-export function upsertProducts(db: DatabaseSync, products: OffProduct[]): void {
+export function upsertProducts(db: DatabaseSync, products: OffProduct[], taxonomy: CategoryTaxonomy): void {
   const upsert = db.prepare(
     `INSERT INTO products (code, doc, modified) VALUES (?, ?, ?)
      ON CONFLICT (code) DO UPDATE SET doc = excluded.doc, modified = excluded.modified
@@ -115,7 +124,9 @@ export function upsertProducts(db: DatabaseSync, products: OffProduct[]): void {
   );
   const rowid = db.prepare("SELECT rowid FROM products WHERE code = ?");
   const unindex = db.prepare("DELETE FROM product_search WHERE rowid = ?");
-  const index = db.prepare("INSERT INTO product_search (rowid, name, brands, france) VALUES (?, ?, ?, ?)");
+  const index = db.prepare(
+    "INSERT INTO product_search (rowid, name, brands, categories, france) VALUES (?, ?, ?, ?, ?)",
+  );
   db.exec("BEGIN");
   try {
     for (const p of products) {
@@ -123,7 +134,7 @@ export function upsertProducts(db: DatabaseSync, products: OffProduct[]): void {
       if (upsert.run(code, JSON.stringify(p), p.last_modified_t ?? 0).changes === 0) continue;
       const row = rowid.get(code) as { rowid: number };
       unindex.run(row.rowid);
-      index.run(row.rowid, ...searchEntry(p));
+      index.run(row.rowid, ...searchEntry(p, taxonomy));
     }
     db.exec("COMMIT");
   } catch (error) {
@@ -184,10 +195,11 @@ export class OffLocalStore implements OffLocalReader {
   search(text: string, brand: string | undefined, limit: number): OffProduct[] {
     const match = matchExpression(text, brand);
     if (!this.db || !match) return [];
+    // Column weights: brand words count most, category words least (a name match beats a category-only match).
     const rows = this.db
       .prepare(
         `SELECT p.doc FROM product_search s JOIN products p ON p.rowid = s.rowid
-         WHERE product_search MATCH ? ORDER BY s.france DESC, bm25(product_search, 1.0, 2.0) LIMIT ?`,
+         WHERE product_search MATCH ? ORDER BY s.france DESC, bm25(product_search, 1.0, 2.0, 0.3) LIMIT ?`,
       )
       .all(match, limit) as Array<{ doc: string }>;
     return rows.map((r) => JSON.parse(r.doc) as OffProduct);

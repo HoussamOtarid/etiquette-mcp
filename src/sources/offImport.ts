@@ -4,6 +4,7 @@ import { Readable } from "node:stream";
 import type { ReadableStream } from "node:stream/web";
 import { createGunzip } from "node:zlib";
 import { usableEan } from "../domain/ean.ts";
+import { type CategoryTaxonomy, parseCategoryTaxonomy, TAXONOMY_URL } from "./offCategories.ts";
 import {
   COPY_FORMAT,
   countProducts,
@@ -121,9 +122,17 @@ async function* productsFrom(url: string, opts: ImportOptions): AsyncGenerator<O
   }
 }
 
+/** The category taxonomy, fetched for each import so new categories get their names in the index. */
+async function fetchTaxonomy(opts: ImportOptions): Promise<CategoryTaxonomy> {
+  const res = await (opts.fetch ?? fetch)(TAXONOMY_URL, { headers: { "user-agent": opts.userAgent } });
+  if (!res.ok) throw new Error(`category taxonomy: HTTP ${res.status}`);
+  return parseCategoryTaxonomy((await res.json()) as Parameters<typeof parseCategoryTaxonomy>[0]);
+}
+
 async function load(
   db: ReturnType<typeof openForWrite>,
   products: AsyncIterable<OffProduct>,
+  taxonomy: CategoryTaxonomy,
   onProgress?: (n: number) => void,
 ): Promise<number> {
   let batch: OffProduct[] = [];
@@ -131,12 +140,12 @@ async function load(
   for await (const product of products) {
     batch.push(product);
     if (batch.length < BATCH) continue;
-    upsertProducts(db, batch);
+    upsertProducts(db, batch, taxonomy);
     loaded += batch.length;
     batch = [];
     if (onProgress && loaded % PROGRESS_EVERY === 0) onProgress(loaded);
   }
-  if (batch.length > 0) upsertProducts(db, batch);
+  if (batch.length > 0) upsertProducts(db, batch, taxonomy);
   return loaded + batch.length;
 }
 
@@ -147,7 +156,7 @@ export async function fullImport(opts: ImportOptions): Promise<{ products: numbe
   const path = newCopyPath(opts.dataDir, started);
   const db = openForWrite(path, { bulk: true });
   try {
-    await load(db, productsFrom(EXPORT_URL, opts), opts.onProgress);
+    await load(db, productsFrom(EXPORT_URL, opts), await fetchTaxonomy(opts), opts.onProgress);
     const products = countProducts(db);
     const min = opts.minProducts ?? MIN_PRODUCTS;
     if (products < min) throw new Error(`only ${products} products imported (expected at least ${min})`);
@@ -197,9 +206,10 @@ export async function applyDeltas(opts: ImportOptions): Promise<{ files: number;
     if (getMeta(db, META.format) !== String(COPY_FORMAT))
       throw new Error("the local copy was built by another version; run a full import");
     const files = deltaFiles(index, Number(getMeta(db, META.lastDeltaEnd) ?? 0));
+    const taxonomy = files.length > 0 ? await fetchTaxonomy(opts) : new Map();
     let products = 0;
     for (const file of files) {
-      products += await load(db, productsFrom(`${DELTA_URL}${file.name}`, opts));
+      products += await load(db, productsFrom(`${DELTA_URL}${file.name}`, opts), taxonomy);
       setMeta(db, { [META.lastDeltaEnd]: file.end });
     }
     setMeta(db, { [META.updatedAt]: now(), [META.products]: countProducts(db) });

@@ -8,6 +8,7 @@ import { loadConfig } from "../../src/config.ts";
 import { Cache } from "../../src/infra/cache.ts";
 import { HttpClient } from "../../src/infra/http.ts";
 import { silentLogger } from "../../src/infra/logger.ts";
+import { categoryText, parseCategoryTaxonomy, TAXONOMY_URL } from "../../src/sources/offCategories.ts";
 import {
   applyDeltas,
   DELTA_URL,
@@ -79,10 +80,18 @@ const fixture = (path: string) =>
 
 const jsonlGz = (docs: unknown[]) => gzipSync(`${docs.map((d) => JSON.stringify(d)).join("\n")}\n`);
 
-/** A fetch serving fixed bodies by URL; anything else is a 404. */
+const TAXONOMY = {
+  "en:desserts": { name: { en: "Desserts", fr: "Desserts" } },
+  "en:sorbets": { name: { en: "Sorbets", fr: "Sorbets" }, parents: ["en:desserts"] },
+  "en:lemon-sorbets": { name: { en: "Lemon sorbets", fr: "Sorbets au citron" }, parents: ["en:sorbets"] },
+  "en:fruit-juices": { name: { en: "Fruit juices", fr: "Jus de fruits" } },
+};
+
+/** A fetch serving fixed bodies by URL (and the category taxonomy); anything else is a 404. */
 function stubFetch(files: Record<string, Uint8Array | string>): typeof fetch {
+  const served: Record<string, Uint8Array | string> = { [TAXONOMY_URL]: JSON.stringify(TAXONOMY), ...files };
   return (async (input: string | URL | Request) => {
-    const body = files[String(input)];
+    const body = served[String(input)];
     return body === undefined ? new Response("missing", { status: 404 }) : new Response(body);
   }) as typeof fetch;
 }
@@ -194,6 +203,13 @@ describe("Open Food Facts local copy", () => {
     await expect(fullImport({ dataDir, userAgent: "t", fetch: stubFetch({}), now })).rejects.toThrow(
       /HTTP 404/,
     );
+    const noTaxonomy = stubFetch({
+      [EXPORT_URL]: jsonlGz([doc(EAN_A, "Nutella", 539, 100)]),
+      [TAXONOMY_URL]: "",
+    });
+    await expect(
+      fullImport({ dataDir, userAgent: "t", fetch: noTaxonomy, minProducts: 1, now }),
+    ).rejects.toThrow();
     expect(currentCopyPath(dataDir)).toBe(before);
   });
 
@@ -309,6 +325,39 @@ describe("Open Food Facts local copy", () => {
     store.reopen();
     expect(store.search("lait avoine", undefined, 5).map((p) => p.code)).toEqual([EAN_B]);
     expect(store.search("boisson", undefined, 5)).toEqual([]);
+    store.close();
+  });
+
+  it("names products by their most specific categories, in French and English", () => {
+    const taxonomy = parseCategoryTaxonomy(TAXONOMY);
+    expect(categoryText(["en:desserts", "en:sorbets", "en:lemon-sorbets"], taxonomy)).toBe(
+      "sorbets au citron lemon sorbets",
+    );
+    expect(categoryText(["en:desserts", "fr:sorbet-maison"], taxonomy)).toBe("desserts sorbet maison");
+    expect(categoryText(undefined, taxonomy)).toBe("");
+  });
+
+  it("finds products by any of their names or by category, name matches first", async () => {
+    const dataDir = dir();
+    const sorbet = {
+      ...doc(EAN_A, "Lemon Sorbet", 120, 100),
+      brands: "Häagen-Dazs",
+      categories_tags: ["en:desserts", "en:sorbets", "en:lemon-sorbets"],
+    };
+    const named = { ...doc(EAN_C, "Sorbet citron", 110, 100), categories_tags: ["en:desserts"] };
+    const juice = {
+      ...doc(EAN_B, "Saft", 45, 100),
+      product_name_en: "Apple juice",
+      generic_name_fr: "Jus de pomme",
+      categories_tags: ["en:fruit-juices"],
+    };
+    await importWorld(dataDir, [sorbet, named, juice]);
+    const store = new OffLocalStore(dataDir);
+    expect(store.search("sorbet citron", undefined, 5).map((p) => p.code)).toEqual([EAN_C, EAN_A]);
+    expect(store.search("sorbet citron", "Häagen-Dazs", 5).map((p) => p.code)).toEqual([EAN_A]);
+    expect(store.search("jus pomme", undefined, 5).map((p) => p.code)).toEqual([EAN_B]);
+    expect(store.search("apple juice", undefined, 5).map((p) => p.code)).toEqual([EAN_B]);
+    expect(parseOffProduct(store.get(EAN_B) ?? {})?.name).toBe("Saft");
     store.close();
   });
 
