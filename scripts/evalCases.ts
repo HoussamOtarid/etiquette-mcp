@@ -51,10 +51,7 @@ export const CASES: EvalCase[] = [
   label("zott-pudding-caramel", "zott protein pudding caramel", { name: "pudding caramel", brand: "zott" }),
   label("organic-crave-chips", "organic crave protein chips", { name: "chips", brand: "crave" }),
   label("danone-skyr-nature", "skyr nature danone", { name: "skyr", brand: "danone" }),
-  label("florette-jeunes-pousses", "florette jeunes pousses 80g", {
-    name: "jeunes pousses",
-    brand: "florette",
-  }),
+  label("florette-jeunes-pousses", "florette jeunes pousses 80g", { ean: "3280220307210" }),
   label("kefirade-citron", "kéfirade citron", { name: "citron", brand: "kefirade" }),
   label("zanetti-ricotta", "ricotta zanetti", { name: "ricotta", brand: "zanetti" }),
   label("u-hache-5", "U viande hachée 5%", { name: "hachee 5", brand: "u" }, "one-letter brand in the query"),
