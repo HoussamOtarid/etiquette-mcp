@@ -4,7 +4,7 @@
  * With --check it exits non-zero when a case is not found or a source answers with an error (site or parser broken);
  * timeouts and rate limits are reported but not failures.
  */
-import { mkdtempSync } from "node:fs";
+import { appendFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NutritionService } from "../src/app/nutritionService.ts";
@@ -55,6 +55,7 @@ async function main(): Promise<void> {
   const given = args.filter((a) => a !== "--check");
   const cases = given.length > 0 ? given : DEFAULT_CASES;
   const failures: string[] = [];
+  const rows: string[] = [];
   for (const query of cases) {
     const started = Date.now();
     const r = await service.getLabel({ product: query, includeRaw: false });
@@ -74,16 +75,49 @@ async function main(): Promise<void> {
       console.log(`   candidates: ${r.candidates.map((c) => `${c.name} [${c.brand ?? "?"}]`).join(" | ")}`);
     const failing = Object.entries(r.sources).filter(([, s]) => !["ok", "not_found", "skipped"].includes(s));
     if (failing.length) console.log(`   source issues: ${failing.map(([s, st]) => `${s}=${st}`).join(", ")}`);
+    rows.push(
+      `| ${query} | ${r.status} | ${r.confidence?.sources_with_label ?? 0} | ${failing.map(([s, st]) => `${s}=${st}`).join(", ") || "-"} | ${Date.now() - started} |`,
+    );
     if (r.status !== "found") failures.push(`${query}: ${r.status}`);
     for (const [source, status] of failing)
       if (status === "error") failures.push(`${query}: ${source} error`);
   }
+  writeSummary(rows, service.listSources(), failures);
   cache.close();
   clearInterval(keepAlive);
   if (check && failures.length > 0) {
     console.log(`\nFAILED (${failures.length}):\n  ${failures.join("\n  ")}`);
     process.exitCode = 1;
   }
+}
+
+/** On GitHub Actions, the results and each source's health (with its last error) go to the run's summary page. */
+function writeSummary(
+  rows: string[],
+  sources: ReturnType<NutritionService["listSources"]>,
+  failures: string[],
+): void {
+  const path = process.env.GITHUB_STEP_SUMMARY;
+  if (!path) return;
+  const health = sources.map(
+    (s) =>
+      `| ${s.source} | ${s.status} | ${s.calls_24h} | ${s.failures_24h} | ${s.last_failure?.replace(/\|/g, "/") ?? "-"} |`,
+  );
+  appendFileSync(
+    path,
+    [
+      `## Live sources: ${failures.length > 0 ? `${failures.length} failure(s)` : "all good"}`,
+      "",
+      "| Case | Status | Labels | Source issues | ms |",
+      "|---|---|---|---|---|",
+      ...rows,
+      "",
+      "| Source | Status | Calls | Failures | Last failure |",
+      "|---|---|---|---|---|",
+      ...health,
+      "",
+    ].join("\n"),
+  );
 }
 
 await main();
