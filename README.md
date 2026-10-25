@@ -71,7 +71,14 @@ meanwhile), applies the daily updates and rebuilds it monthly; `list_sources` sh
 
 ## Running
 
-Requires Node.js 24+.
+With the published Docker image (amd64 and arm64), using an `.env` file based on [`.env.example`](.env.example):
+
+```bash
+docker run -d --name etiquette-mcp -p 3000:3000 --env-file .env -v etiquette-data:/data \
+  ghcr.io/houssamotarid/etiquette-mcp:latest
+```
+
+From source (Node.js 24+):
 
 ```bash
 npm ci
@@ -79,7 +86,7 @@ cp .env.example .env        # set MCP_AUTH_TOKEN (openssl rand -hex 32)
 npm run dev                 # or: npm run build && npm start
 ```
 
-Or with Docker: `docker compose up -d --build`.
+Or build the image yourself: `docker compose up -d --build`.
 
 The MCP endpoint is `POST /mcp` (streamable HTTP, stateless) with `Authorization: Bearer <MCP_AUTH_TOKEN>`.
 `GET /health` needs no authentication.
