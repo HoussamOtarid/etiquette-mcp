@@ -142,6 +142,21 @@ describe("NutritionService", () => {
     expect(result.per_source).toHaveLength(4);
   });
 
+  it("asks every source for a barcode, also after a text search found the product", async () => {
+    const barcodeOnly = fake({
+      id: "picard",
+      tier: "B",
+      text: false,
+      ean: true,
+      search: (q) => (q.ean === EAN ? [offer("picard", "Pain intégral", { ean: EAN })] : []),
+      getLabel: () => ({ label: label("picard", 230, 1, 44, 6.8), ean: EAN }),
+    });
+    const svc = service([off, barcodeOnly]);
+    expect((await svc.findProduct({ query: "pain montignac" })).products[0]?.product_ref).toBe(`ean:${EAN}`);
+    const result = await svc.getLabel({ product: `ean:${EAN}` });
+    expect(result.offers?.map((o) => o.source).sort()).toEqual(["off", "picard"]);
+  });
+
   it("takes the label of the brand's own shop as the reference", async () => {
     const own = {
       ...fake({

@@ -167,6 +167,17 @@ function shopsFoundIt(offers: Offer[], query: string, brand: string | undefined)
   );
 }
 
+/** A product group completed with the offers another group of the same product has and it lacks. */
+function withOffersOf(
+  group: ProductGroup | undefined,
+  other: ProductGroup | undefined,
+): ProductGroup | undefined {
+  if (!group || !other) return group ?? other;
+  const known = new Set(group.offers.map((o) => `${o.source}:${o.sourceProductId}`));
+  const missing = other.offers.filter((o) => !known.has(`${o.source}:${o.sourceProductId}`));
+  return missing.length > 0 ? { ...group, offers: [...group.offers, ...missing] } : group;
+}
+
 /** A shop listing a product several times gives one label, not several votes: keep its most complete one. */
 function onePerSource(labels: SourceLabel[]): SourceLabel[] {
   const best = new Map<SourceId, SourceLabel>();
@@ -423,9 +434,13 @@ export class NutritionService {
         ? normalizeEan(ref)
         : null;
     if (barcode) {
-      const group =
-        this.deps.cache.get<ProductGroup>("group", `ean:${barcode}`) ??
-        (await this.groupsForEan(barcode, adapters, deadline, status))[0];
+      // Every source is asked (their own caches keep it cheap): a group remembered from a text search may lack
+      // the sources that only find this product by barcode. Its offers are kept.
+      const live = (await this.groupsForEan(barcode, adapters, deadline, status))[0];
+      const group = withOffersOf(
+        live,
+        this.deps.cache.get<ProductGroup>("group", `ean:${barcode}`) ?? undefined,
+      );
       if (!group) return { kind: "none", advice: UNKNOWN_BARCODE_ADVICE };
       this.remember([group]);
       return { kind: "group", group, ranked: [] };
