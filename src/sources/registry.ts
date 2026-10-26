@@ -8,6 +8,7 @@ import { LaFourcheAdapter } from "./laFourche.ts";
 import { LaVieClaireAdapter } from "./laVieClaire.ts";
 import { NaturaliaAdapter } from "./naturalia.ts";
 import { OpenFoodFactsAdapter, PRODUCT_URL } from "./openFoodFacts.ts";
+import { PicardAdapter } from "./picard.ts";
 
 export function createAdapters(deps: AdapterDeps): SourceAdapter[] {
   const all: SourceAdapter[] = [
@@ -19,6 +20,7 @@ export function createAdapters(deps: AdapterDeps): SourceAdapter[] {
     new NaturaliaAdapter(deps),
     new LaBelleVieAdapter(deps),
     new ChronodriveAdapter(deps),
+    new PicardAdapter(deps),
   ];
   return all.filter((a) => !deps.config.disabledSources.includes(a.id));
 }
@@ -39,6 +41,7 @@ export const HOST_LIMITS = {
   "search.deleev.com": { intervalMs: 1000, concurrency: 2 },
   "www.labellevie.com": { intervalMs: 2000, concurrency: 2 },
   "www.chronodrive.com": { intervalMs: 2000, concurrency: 1 },
+  "www.picard.fr": { intervalMs: 1000, concurrency: 1 },
 } as const;
 
 export const DEFAULT_LIMIT = { intervalMs: 2000, concurrency: 1 } as const;

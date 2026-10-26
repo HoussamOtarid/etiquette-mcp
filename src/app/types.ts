@@ -115,6 +115,9 @@ export interface ReadyToApply {
   qualifiers: Partial<Record<NutrientKey, Qualifier>>;
   pack: PackSize | null;
   per_pack: FlatValues | null;
+  /** Portion a label gives values for, and those values as printed (from a label matching the values above). */
+  portion: { description: string; amount: number | null; unit: "g" | "ml" | null } | null;
+  per_portion: FlatValues | null;
   /** Nutrients left null because sources disagree, with each source's value and the most trusted one. */
   conflicts?: Array<{
     nutrient: NutrientKey;

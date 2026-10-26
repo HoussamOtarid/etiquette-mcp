@@ -20,7 +20,7 @@ describe("config", () => {
 
   it("rejects short tokens and unknown sources", () => {
     expect(() => loadConfig({ MCP_AUTH_TOKEN: "short" })).toThrow(/MCP_AUTH_TOKEN/);
-    expect(() => loadConfig({ MCP_AUTH_TOKEN: TOKEN, DISABLED_SOURCES: "picard" })).toThrow(/picard/);
+    expect(() => loadConfig({ MCP_AUTH_TOKEN: TOKEN, DISABLED_SOURCES: "carrefour" })).toThrow(/carrefour/);
   });
 });
 

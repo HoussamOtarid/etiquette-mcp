@@ -1,5 +1,9 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { loadConfig } from "../../src/config.ts";
+import { Cache } from "../../src/infra/cache.ts";
+import { HttpClient } from "../../src/infra/http.ts";
+import { silentLogger } from "../../src/infra/logger.ts";
 import { parseBiocoopProduct, parseBiocoopSuggest } from "../../src/sources/biocoop.ts";
 import { parseChronodriveSearch } from "../../src/sources/chronodrive.ts";
 import {
@@ -9,6 +13,12 @@ import {
 } from "../../src/sources/laBelleVie.ts";
 import { parseLaVieClaireProduct, parseLaVieClaireSearch } from "../../src/sources/laVieClaire.ts";
 import { parseNaturaliaProduct, parseNaturaliaSuggest } from "../../src/sources/naturalia.ts";
+import {
+  PicardAdapter,
+  parsePicardProduct,
+  parsePicardSearch,
+  picardProductUrl,
+} from "../../src/sources/picard.ts";
 
 const text = (path: string) => readFileSync(new URL(`../fixtures/${path}`, import.meta.url), "utf8");
 const json = <T>(path: string) => JSON.parse(text(path)) as T;
@@ -176,4 +186,92 @@ describe("Chronodrive", () => {
     expect(parseChronodriveSearch(html, "3596710548866")[1]?.ean).toBe("3596710548866");
     expect(() => parseChronodriveSearch("<html></html>")).toThrow(/payload/);
   });
+});
+
+describe("Picard", () => {
+  const RIZ =
+    "https://www.picard.fr/produits/riz-cuisine-espagnole-poivrons-petits-pois-000000000000059697.html";
+
+  it("reads search tiles: Picard's own products, its ranges and other brands", () => {
+    const offers = parsePicardSearch(text("picard/search-lasagne.html"));
+    expect(offers.map((o) => [o.name, o.brand, o.sizeText, o.priceEur])).toEqual([
+      ["Lasagnes bolognaise individuel", "Formule Express (Express Menu)", "barquette de 400 g", 3.65],
+      ["Lasagnes à la bolognaise", "Picard", "la boîte de 1 kg", 5.49],
+      ["Lasagnes alla bolognese", "Picard", "barquette de 400 g", 4.99],
+    ]);
+    expect(offers[1]?.url).toBe("https://www.picard.fr/produits/lasagnes-bolognaise-000000000000023532.html");
+  });
+
+  it("reads the label per 100 g, the portion, ingredients, allergens, traces and the barcode", () => {
+    const page = parsePicardProduct(text("picard/product-riz-espagnole.html"), RIZ);
+    expect(page).toMatchObject({ ean: "3270160596973", sizeText: "le sachet de 450 g", priceEur: 3.3 });
+    expect(page?.name).toBe("Riz cuisiné à l'espagnole (poivrons, petits pois)");
+    const label = page?.label;
+    expect(nums(label?.values ?? {})).toEqual({
+      energy_kj: 491,
+      energy_kcal: 117,
+      fat_g: 3.7,
+      saturated_fat_g: 0.4,
+      carbohydrates_g: 18,
+      sugars_g: 1.6,
+      fiber_g: 1.5,
+      protein_g: 2.5,
+      salt_g: 0.54,
+    });
+    expect(label).toMatchObject({
+      basis: "100g",
+      portion: { description: "une portion de 150g", amount: 150, unit: "g" },
+      nutriscore: "B",
+      allergens: "crustacés, poissons",
+      parseStatus: "ok",
+    });
+    expect(label?.raw).toMatch(/Pour une portion de 150g : Energie : 737 kJ 176 kcal/);
+    expect(nums(label?.portion?.values ?? {})).toMatchObject({ energy_kcal: 176, fat_g: 5.6, salt_g: 0.81 });
+    expect(label?.ingredients).toMatch(/^Riz précuit 54,8%/);
+    expect(label?.traces).toMatch(/^Céréales contenant du gluten/);
+    expect(parsePicardProduct(text("picard/product-magnum.html"), RIZ.replace("059697", "084354"))?.ean).toBe(
+      "8711327608665",
+    );
+    expect(parsePicardProduct("<html></html>", "https://www.picard.fr/rayons/plats-cuisines")).toBeNull();
+    const twoBarcodes = '<meta itemprop="gtin13" content="3270160833900 8000881003673" />';
+    expect(parsePicardProduct(twoBarcodes, RIZ)?.ean).toBe("3270160833900");
+  });
+
+  it("finds the products Picard makes by barcode, without a request for other barcodes", async () => {
+    expect(picardProductUrl("3270160596973")).toMatch(/Product-Show\?pid=000000000000059697$/);
+    expect(picardProductUrl("8711327608665")).toBeNull();
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith("pid=000000000000059697")) {
+        const res = new Response(text("picard/product-riz-espagnole.html"));
+        Object.defineProperty(res, "url", { value: RIZ });
+        return res;
+      }
+      const gone = new Response("<html></html>");
+      Object.defineProperty(gone, "url", { value: "https://www.picard.fr/rayons/plats-cuisines" });
+      return gone;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const picard = new PicardAdapter({
+      http: new HttpClient({
+        userAgent: "t",
+        timeoutMs: 1000,
+        defaultLimit: { intervalMs: 0, concurrency: 4 },
+        logger: silentLogger,
+      }),
+      cache: new Cache(":memory:"),
+      logger: silentLogger,
+      config: loadConfig({ MCP_AUTH_TOKEN: "t".repeat(32) }),
+    });
+    const [offer] = await picard.search({ ean: "3270160596973", limit: 1 });
+    expect(offer).toMatchObject({ source: "picard", brand: "Picard", ean: "3270160596973", url: RIZ });
+    expect(offer?.label?.values.energy_kcal?.value).toBe(117);
+    expect(offer && picard.ownsProduct(offer)).toBe(true);
+    expect(picard.ownsProduct({ ...(offer as NonNullable<typeof offer>), ean: "8711327608665" })).toBe(false);
+    expect(await picard.search({ ean: "8711327608665", limit: 1 })).toEqual([]);
+    expect(await picard.search({ ean: "3270160101351", limit: 1 })).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
 });

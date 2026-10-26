@@ -1,5 +1,5 @@
 import { round } from "../domain/numbers.ts";
-import { type NutrientKey, SALT_PER_SODIUM } from "../domain/nutrients.ts";
+import { CORE_NUTRIENTS, type NutrientKey, SALT_PER_SODIUM } from "../domain/nutrients.ts";
 import { parseQuantity } from "../domain/quantity.ts";
 import { sameBrand, tokenSimilarity } from "../domain/text.ts";
 import type { Basis, Offer, SourceId, Tier } from "../domain/types.ts";
@@ -187,6 +187,20 @@ function scale(values: FlatValues, factor: number): FlatValues {
   return out;
 }
 
+/** The source agrees with every core nutrient chosen. */
+function supportsCore(d: DecidedLabel, source: SourceId): boolean {
+  return CORE_NUTRIENTS.every((k) => d.nutrients[k]?.supporting.includes(source) === true);
+}
+
+function flatValues(values: Partial<Record<NutrientKey, { value: number }>>): FlatValues {
+  const out: FlatValues = {};
+  for (const [key, v] of Object.entries(values) as Array<[NutrientKey, { value: number }]>)
+    out[key] = displayValue(key, v.value);
+  const salt = out.salt_g;
+  if (salt !== undefined && salt !== null) out.sodium_g = displayValue("sodium_g", salt / SALT_PER_SODIUM);
+  return out;
+}
+
 export function readyToApply(d: DecidedLabel, pack: PackSize | null): ReadyToApply {
   const per100: FlatValues = {};
   const qualifiers: ReadyToApply["qualifiers"] = {};
@@ -209,12 +223,20 @@ export function readyToApply(d: DecidedLabel, pack: PackSize | null): ReadyToApp
     (d.basis === "100g/100ml" ||
       (d.basis === "100g" && pack.unit === "g") ||
       (d.basis === "100ml" && pack.unit === "ml"));
+  // Per-portion values are taken as printed, from a label whose per-100 values are the ones chosen.
+  const portioned = d.perSource
+    .filter((l) => l.original.portion && (l.brandOwner || supportsCore(d, l.source)))
+    .sort((a, b) => Number(b.brandOwner) - Number(a.brandOwner))[0]?.original.portion;
   const result: ReadyToApply = {
     basis: d.basis,
     per_100: per100,
     qualifiers,
     pack,
     per_pack: compatible && pack ? scale(per100, pack.amount / 100) : null,
+    portion: portioned
+      ? { description: portioned.description, amount: portioned.amount, unit: portioned.unit }
+      : null,
+    per_portion: portioned ? flatValues(portioned.values) : null,
   };
   if (conflicts.length > 0) result.conflicts = conflicts;
   return result;

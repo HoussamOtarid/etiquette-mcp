@@ -28,8 +28,8 @@ A `get_label` answer contains:
 - `no_good_match` / `requested_brand_found`: the best match is weak, or the brand given was not found
 - `label.nutrients`: per nutrient, the chosen value with its agreement (`strong`, `weak`, `majority`, `single`,
   `brand_owner` or `conflict`), how many sources agree, dissenting values and `<` / traces qualifiers
-- `ready_to_apply`: flat values per 100 g/ml (salt and sodium), and per pack when the pack size is known; nutrients
-  the sources disagree on stay null and are listed in `conflicts` with each value
+- `ready_to_apply`: flat values per 100 g/ml (salt and sodium), per pack when the pack size is known, and per portion
+  when a label states one; nutrients the sources disagree on stay null and are listed in `conflicts` with each value
 - `confidence`: overall level (`high` / `medium` / `low` / `none`), independent source count, missing nutrients,
   self-check results, flags and `flag_details` naming the source and nutrient behind each flag
 - `advice`: a short instruction for the calling model
@@ -63,7 +63,7 @@ All values are per 100 g or per 100 ml (`label.basis`).
 
 ## Sources
 
-Open Food Facts, La Fourche, Kazidomi, Biocoop, La Vie Claire, Naturalia, La Belle Vie and Chronodrive. Requests are
+Open Food Facts, La Fourche, Kazidomi, Biocoop, La Vie Claire, Naturalia, La Belle Vie, Chronodrive and Picard. Requests are
 anonymous: no cookies, no accounts, and a user agent that only names the project (with its repository URL for Open Food
 Facts, which asks API clients to identify themselves). Each source is paced to its documented limits or a polite rate,
 and results are cached in SQLite.

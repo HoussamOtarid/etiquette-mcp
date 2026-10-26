@@ -9,6 +9,7 @@ export const SOURCE_IDS = [
   "naturalia",
   "labellevie",
   "chronodrive",
+  "picard",
 ] as const;
 
 export type SourceId = (typeof SOURCE_IDS)[number];
@@ -60,6 +61,13 @@ export interface SourceLabel {
   dataOrigin?: "producer" | "crowd" | "store";
   /** The label itself says it was copied from another source (e.g. "Source : Open Food Facts"). */
   copiedFrom?: SourceId;
+  /** Portion the label also gives values for, as printed ("une portion de 150g", "1 barquette"). */
+  portion?: {
+    description: string;
+    amount: number | null;
+    unit: "g" | "ml" | null;
+    values: Partial<Record<NutrientKey, NutrientValue>>;
+  };
   /** The shop listing the product makes or brands it (store brand): its label is the reference for that product. */
   fromBrandOwner?: boolean;
   /** The source stores unknown values as 0 (Kazidomi); zeros must not be trusted blindly. */

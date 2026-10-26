@@ -85,7 +85,8 @@ export function buildMcpServer(service: NutritionService): McpServer {
         "Returns the best-supported nutrition label for one product: per-nutrient value with how many sources agree, " +
         "an overall confidence, flags (with confidence.flag_details naming the source and nutrient), advice, " +
         "ingredients, allergens, prices per store, and each source's structured and raw label (which may list extra " +
-        "nutrients). ready_to_apply gives flat values to store; nutrients the sources disagree on stay null there and " +
+        "nutrients). ready_to_apply gives flat values to store (per 100, per pack, per portion when a label states one); " +
+        "nutrients the sources disagree on stay null there and " +
         "are listed in ready_to_apply.conflicts. Accepts a barcode directly, a product_ref from find_product, or a " +
         "product description (returns candidates with label_preview if ambiguous). status 'incomplete' means sources " +
         "timed out or were rate limited: retry later.",

@@ -150,7 +150,18 @@ describe("NutritionService", () => {
         ean: true,
         search: (q) =>
           q.ean === EAN ? [offer("biocoop", "Pain intégral", { ean: EAN, brand: "Biocoop" })] : [],
-        getLabel: () => ({ label: label("biocoop", 230, 1, 44, 6.8), ean: EAN }),
+        getLabel: () => ({
+          label: {
+            ...label("biocoop", 230, 1, 44, 6.8),
+            portion: {
+              description: "une portion de 150g",
+              amount: 150,
+              unit: "g",
+              values: { energy_kcal: { value: 344 }, protein_g: { value: 10.2 } },
+            },
+          },
+          ean: EAN,
+        }),
       }),
       ownsProduct: (o: Offer) => o.brand === "Biocoop",
     };
@@ -167,6 +178,10 @@ describe("NutritionService", () => {
     expect(result.label?.nutrients.energy_kcal).toMatchObject({ value: 230, agreement: "brand_owner" });
     expect(result.confidence?.overall).toBe("high");
     expect(result.confidence?.flags).toContain("brand_owner_label");
+    expect(result.ready_to_apply).toMatchObject({
+      portion: { description: "une portion de 150g", amount: 150, unit: "g" },
+      per_portion: { energy_kcal: 344, protein_g: 10.2 },
+    });
   });
 
   it("returns candidates when a text query is ambiguous, and labels them by reference", async () => {
