@@ -64,10 +64,10 @@ All values are per 100 g or per 100 ml (`label.basis`).
 
 ## Sources
 
-Open Food Facts, La Fourche, Kazidomi, Biocoop, La Vie Claire, Naturalia, La Belle Vie, Chronodrive and Picard. Requests are
-anonymous: no cookies, no accounts, and a user agent that only names the project (with its repository URL for Open Food
-Facts, which asks API clients to identify themselves). Each source is paced to its documented limits or a polite rate,
-and results are cached in SQLite.
+Open Food Facts, La Fourche, Kazidomi, Biocoop, La Vie Claire, Naturalia, La Belle Vie, Chronodrive and Picard.
+Requests are anonymous: no cookies, no accounts, and a user agent that only names the project (with its repository URL
+for Open Food Facts, which asks API clients to identify themselves). Each source is paced to its documented limits or a
+polite rate, and results are cached in SQLite.
 
 With `OFF_LOCAL_DB=true`, barcodes and product names are looked up in a local copy of the whole Open Food Facts
 database kept in `DATA_DIR` (about 5 GB, twice that while it is rebuilt), with the API as fallback for products
