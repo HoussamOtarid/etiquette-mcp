@@ -157,6 +157,38 @@ describe("NutritionService", () => {
     expect(result.offers?.map((o) => o.source).sort()).toEqual(["off", "picard"]);
   });
 
+  it("drops store-brand products their own shop no longer sells", async () => {
+    const OLD = "3270160861569";
+    const CURRENT = "3270160101351";
+    const lasagne = (source: SourceId, name: string, ean: string) =>
+      offer(source, name, { ean, brand: "Picard", sizeText: "500 g", label: label(source, 113, 4.9, 12, 5) });
+    const openData = {
+      ...fake({
+        id: "off",
+        tier: "A",
+        search: () => [
+          lasagne("off", "Lasagne ai carciofi", OLD),
+          lasagne("off", "Lasagne ai carciofi, garnies d'artichauts, jambon", CURRENT),
+        ],
+      }),
+      localCopy: () => ({ products: 2, full_import_at: null, updated_at: null }),
+    };
+    const shop = (sells: boolean) => ({
+      ...fake({
+        id: "picard",
+        tier: "B",
+        search: () =>
+          sells ? [lasagne("picard", "Lasagne ai carciofi, garnies d'artichauts, jambon", CURRENT)] : [],
+      }),
+      ownsProduct: (o: Offer) => o.ean?.startsWith("3270160") === true,
+    });
+    const query = "lasagne ai carciofi picard";
+    const sold = await service([openData, shop(true)]).findProduct({ query });
+    expect(sold.products.map((p) => p.ean)).toEqual([CURRENT]);
+    const notListed = await service([openData, shop(false)]).findProduct({ query });
+    expect(notListed.products.map((p) => p.ean).sort()).toEqual([CURRENT, OLD]);
+  });
+
   it("takes the label of the brand's own shop as the reference", async () => {
     const own = {
       ...fake({

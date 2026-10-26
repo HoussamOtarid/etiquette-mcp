@@ -59,7 +59,8 @@ All values are per 100 g or per 100 ml (`label.basis`).
    Copies of another source's label count once.
 5. **Brand owner**: for a store brand, the label of the shop that makes or brands the product is the reference. When
    it passes the self-check, its values are kept whatever other sources say (`brand_owner`), and it alone gives high
-   confidence.
+   confidence. Its shop also shows which of the brand's products are current: when it sells products matching a
+   search, the brand's products it doesn't sell (often discontinued ones kept by open databases) are left out.
 
 ## Sources
 

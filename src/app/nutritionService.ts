@@ -210,6 +210,28 @@ export function relevantGroups(
   return kept;
 }
 
+/**
+ * A store brand's products that its own shop doesn't sell are dropped when the shop sells products matching the
+ * query: open databases keep discontinued products, the brand's own shop lists the current ones.
+ */
+export function withoutUnsoldStoreBrands<G extends ProductGroup>(
+  groups: G[],
+  ownerOf: (offer: Offer) => SourceId | undefined,
+): G[] {
+  const owner = (g: G) => g.offers.map(ownerOf).find(Boolean);
+  const sold = (g: G, shop: SourceId) => g.offers.some((o) => o.source === shop);
+  const selling = new Set(
+    groups.flatMap((g) => {
+      const shop = owner(g);
+      return shop && sold(g, shop) ? [shop] : [];
+    }),
+  );
+  return groups.filter((g) => {
+    const shop = owner(g);
+    return !shop || !selling.has(shop) || sold(g, shop);
+  });
+}
+
 /** Orchestrates sources, identity and the decision engine for the MCP tools. */
 export class NutritionService {
   private readonly byId: Map<SourceId, SourceAdapter>;
@@ -485,10 +507,9 @@ export class NutritionService {
         ) ?? undefined;
       if (brand) status.notes.push(`Brand taken from the query: ${brand}.`);
     }
-    const ranked = relevantGroups(
-      rankGroups(groups, { query: input.query, brand, size }),
-      input.query,
-      brand,
+    const ranked = withoutUnsoldStoreBrands(
+      relevantGroups(rankGroups(groups, { query: input.query, brand, size }), input.query, brand),
+      (offer) => adapters.find((a) => a.capabilities.text && a.ownsProduct?.(offer))?.id,
     );
     if (ranked[0]) status.topScore = ranked[0].score;
     return ranked;
