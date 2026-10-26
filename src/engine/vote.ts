@@ -34,7 +34,8 @@ function dedupe(ballots: Ballot[]): { unique: Ballot[]; collapsed: boolean } {
   const best = new Map<string, Ballot>();
   for (const b of ballots) {
     const current = best.get(b.independenceKey);
-    if (!current || b.weight > current.weight) best.set(b.independenceKey, b);
+    if (!current || b.weight > current.weight)
+      best.set(b.independenceKey, { ...b, owner: b.owner || current?.owner });
   }
   return { unique: [...best.values()], collapsed: best.size < ballots.length };
 }
@@ -106,7 +107,10 @@ export function decideNutrient(
   }
 
   const strong = clusterStrong(key, unique);
-  const clusters = strong.length > 1 ? mergeWeak(key, strong) : strong;
+  const merged = strong.length > 1 ? mergeWeak(key, strong) : strong;
+  // The brand's own shop is the reference for its product: its cluster wins, whatever the others say.
+  const ownerCluster = merged.find((c) => c.ballots.some((b) => b.owner));
+  const clusters = ownerCluster ? [ownerCluster, ...merged.filter((c) => c !== ownerCluster)] : merged;
   const [winner, runnerUp] = clusters;
   if (!winner) {
     return {
@@ -128,7 +132,8 @@ export function decideNutrient(
     .slice(1)
     .flatMap((c) => c.ballots)
     .map(({ source, value, weight }) => ({ source, value, weight }));
-  const value = representativeValue(winner.ballots);
+  const owner = winner.ballots.find((b) => b.owner);
+  const value = owner ? owner.value : representativeValue(winner.ballots);
 
   if (winner.ballots.length === total) {
     return {
@@ -139,6 +144,18 @@ export function decideNutrient(
       supporting,
       weakOnly,
       dissent: [],
+    };
+  }
+
+  if (owner) {
+    return {
+      ...base,
+      value,
+      agreement: "brand_owner",
+      sourcesAgree: winner.ballots.length,
+      supporting,
+      weakOnly,
+      dissent,
     };
   }
 

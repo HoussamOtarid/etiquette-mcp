@@ -26,8 +26,8 @@ A `get_label` answer contains:
 - `status`: `found`, `ambiguous` (see `candidates`, each with a score and a macro preview), `not_found`, or
   `incomplete` when sources did not answer in time (retry after `retry_after_s`)
 - `no_good_match` / `requested_brand_found`: the best match is weak, or the brand given was not found
-- `label.nutrients`: per nutrient, the chosen value with its agreement (`strong`, `weak`, `majority`, `single`
-  or `conflict`), how many sources agree, dissenting values and `<` / traces qualifiers
+- `label.nutrients`: per nutrient, the chosen value with its agreement (`strong`, `weak`, `majority`, `single`,
+  `brand_owner` or `conflict`), how many sources agree, dissenting values and `<` / traces qualifiers
 - `ready_to_apply`: flat values per 100 g/ml (salt and sodium), and per pack when the pack size is known; nutrients
   the sources disagree on stay null and are listed in `conflicts` with each value
 - `confidence`: overall level (`high` / `medium` / `low` / `none`), independent source count, missing nutrients,
@@ -57,6 +57,9 @@ All values are per 100 g or per 100 ml (`label.basis`).
 4. **Voting**: per nutrient, values agreeing within label rounding (or within EU declared-value tolerances) are
    clustered and weighted by source quality. The chosen value is always a published value, never an average.
    Copies of another source's label count once.
+5. **Brand owner**: for a store brand, the label of the shop that makes or brands the product is the reference. When
+   it passes the self-check, its values are kept whatever other sources say (`brand_owner`), and it alone gives high
+   confidence.
 
 ## Sources
 

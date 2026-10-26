@@ -142,6 +142,33 @@ describe("NutritionService", () => {
     expect(result.per_source).toHaveLength(4);
   });
 
+  it("takes the label of the brand's own shop as the reference", async () => {
+    const own = {
+      ...fake({
+        id: "biocoop",
+        tier: "B",
+        ean: true,
+        search: (q) =>
+          q.ean === EAN ? [offer("biocoop", "Pain intégral", { ean: EAN, brand: "Biocoop" })] : [],
+        getLabel: () => ({ label: label("biocoop", 230, 1, 44, 6.8), ean: EAN }),
+      }),
+      ownsProduct: (o: Offer) => o.brand === "Biocoop",
+    };
+    const crowd = fake({
+      id: "off",
+      tier: "A",
+      ean: true,
+      search: (q) =>
+        q.ean === EAN
+          ? [offer("off", "Pain intégral", { ean: EAN, label: label("off", 260, 1, 44, 6.8) })]
+          : [],
+    });
+    const result = await service([crowd, own]).getLabel({ product: EAN });
+    expect(result.label?.nutrients.energy_kcal).toMatchObject({ value: 230, agreement: "brand_owner" });
+    expect(result.confidence?.overall).toBe("high");
+    expect(result.confidence?.flags).toContain("brand_owner_label");
+  });
+
   it("returns candidates when a text query is ambiguous, and labels them by reference", async () => {
     const yaourts = fake({
       id: "biocoop",

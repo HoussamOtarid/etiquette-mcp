@@ -318,6 +318,46 @@ describe("decision", () => {
     expect(d.confidence.flags).toContain("single_source");
   });
 
+  it("takes the brand's own shop label as the reference when sources disagree", () => {
+    const own = label(
+      "biocoop",
+      { kcal: 117, fat: 3.7, carbs: 18, protein: 2.5, salt: 0.54 },
+      { fromBrandOwner: true },
+    );
+    const crowd = label(
+      "off",
+      { kcal: 176, fat: 5.6, carbs: 26, protein: 3.8, salt: 0.8 },
+      { dataOrigin: "crowd" },
+    );
+    const d = decide([crowd, own]);
+    expect(d.nutrients.energy_kcal).toMatchObject({
+      value: 117,
+      agreement: "brand_owner",
+      dissent: [{ source: "off" }],
+    });
+    expect(d.nutrients.salt_g?.value).toBe(0.54);
+    expect(d.confidence.overall).toBe("high");
+    expect(d.confidence.flags).toContain("brand_owner_label");
+    expect(d.confidence.flagDetails).toContainEqual({ flag: "brand_owner_label", source: "biocoop" });
+    expect(d.advice).toMatch(/biocoop, the brand's own shop/);
+
+    const agreeing = decide([label("off", { kcal: 117, fat: 3.7, carbs: 18, protein: 2.5 }), own]);
+    expect(agreeing.nutrients.energy_kcal).toMatchObject({ value: 117, agreement: "strong" });
+    expect(decide([own]).confidence.overall).toBe("high");
+  });
+
+  it("does not trust a brand's own label that fails the self-check", () => {
+    const broken = label(
+      "biocoop",
+      { kcal: 900, fat: 3.7, carbs: 18, protein: 2.5 },
+      { fromBrandOwner: true },
+    );
+    const other = label("naturalia", { kcal: 117, fat: 3.7, carbs: 18, protein: 2.5 });
+    const d = decide([broken, other]);
+    expect(d.nutrients.energy_kcal?.agreement).toBe("conflict");
+    expect(d.confidence.flags).not.toContain("brand_owner_label");
+  });
+
   it("returns none without any label", () => {
     const d = decide([]);
     expect(d.confidence.overall).toBe("none");

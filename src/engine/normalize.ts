@@ -118,6 +118,7 @@ export function normalizeLabel(label: SourceLabel, tier: Tier): NormalizedLabel 
     notes,
     selfCheck: check,
     weight: round(weight, 3),
+    brandOwner: label.fromBrandOwner === true && check.status !== "fail",
     independenceKey: label.copiedFrom ?? label.source,
     original: label,
   };

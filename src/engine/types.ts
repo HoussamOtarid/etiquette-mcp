@@ -19,7 +19,8 @@ export type Flag =
   | "single_source"
   | "copied_label_collapsed"
   | "assembled_label_inconsistent"
-  | "core_nutrient_conflict";
+  | "core_nutrient_conflict"
+  | "brand_owner_label";
 
 export interface SelfCheckResult {
   status: "pass" | "fail" | "insufficient";
@@ -46,6 +47,8 @@ export interface NormalizedLabel {
   notes: string[];
   selfCheck: SelfCheckResult;
   weight: number;
+  /** Label from the brand's own shop that passed the self-check: it decides when sources disagree. */
+  brandOwner: boolean;
   /** Labels with the same key are copies of each other and count as one vote. */
   independenceKey: string;
   original: SourceLabel;
@@ -58,12 +61,15 @@ export interface FlagDetail {
   detail?: string;
 }
 
-export type Agreement = "strong" | "weak" | "majority" | "single" | "conflict";
+/** "brand_owner": the value of the brand's own shop, other sources differ (see dissent). */
+export type Agreement = "strong" | "weak" | "majority" | "single" | "conflict" | "brand_owner";
 
 export interface Vote {
   source: SourceId;
   value: number;
   weight: number;
+  /** The vote of the brand's own shop. */
+  owner?: boolean;
 }
 
 export interface NutrientDecision {

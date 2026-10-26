@@ -765,7 +765,9 @@ export class NutritionService {
         status.notes.push(`${o.offer.source} page shows another barcode (${o.ean}); its label was ignored.`);
         continue;
       }
-      labels.push(withInferredBasis(o.label, o.offer.sizeText ?? group.sizeText ?? o.offer.name));
+      const label = withInferredBasis(o.label, o.offer.sizeText ?? group.sizeText ?? o.offer.name);
+      const owner = this.byId.get(o.offer.source)?.ownsProduct?.({ ...o.offer, ean: o.ean ?? o.offer.ean });
+      labels.push(owner ? { ...label, fromBrandOwner: true } : label);
     }
     return onePerSource(labels);
   }

@@ -1,4 +1,5 @@
 import type { Config } from "../config.ts";
+import { sameBrand } from "../domain/text.ts";
 import type { Offer, SourceId, SourceLabel, Tier } from "../domain/types.ts";
 import type { Cache } from "../infra/cache.ts";
 import type { HttpClient } from "../infra/http.ts";
@@ -33,6 +34,8 @@ export interface SourceAdapter {
   search(query: SearchQuery): Promise<Offer[]>;
   /** Fetches the label for an offer returned by `search` (may be served from `offer.label`). */
   getLabel(offer: Offer): Promise<LabelResult>;
+  /** The shop makes or brands this product (store brand), so its label is the reference for it. */
+  ownsProduct?(offer: Offer): boolean;
   /** State of a local copy of the source's data, for sources that keep one. */
   localCopy?(): LocalCopyStatus | null;
 }
@@ -69,6 +72,11 @@ export function finalizeLabel(label: SourceLabel): SourceLabel {
   const count = Object.keys(label.values).length + (label.sodiumG !== undefined ? 1 : 0);
   label.parseStatus = count === 0 ? "empty" : count >= 6 ? "ok" : "partial";
   return label;
+}
+
+/** The offer's brand is one of the shop's own brands ("Auchan" also covers "Auchan Bio"). */
+export function ownBrand(offer: Offer, brands: readonly string[]): boolean {
+  return brands.some((b) => sameBrand(offer.brand, b) === true);
 }
 
 export function cleanText(text: string | null | undefined): string | null {

@@ -8,6 +8,7 @@ import {
   emptyLabel,
   finalizeLabel,
   type LabelResult,
+  ownBrand,
   type SearchQuery,
   type SourceAdapter,
 } from "./adapter.ts";
@@ -152,6 +153,10 @@ export class ChronodriveAdapter implements SourceAdapter {
 
   constructor(deps: AdapterDeps) {
     this.deps = deps;
+  }
+
+  ownsProduct(offer: Offer): boolean {
+    return ownBrand(offer, ["Auchan"]);
   }
 
   async search(query: SearchQuery): Promise<Offer[]> {

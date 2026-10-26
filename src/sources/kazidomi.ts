@@ -7,6 +7,7 @@ import {
   emptyLabel,
   finalizeLabel,
   type LabelResult,
+  ownBrand,
   type SearchQuery,
   type SourceAdapter,
 } from "./adapter.ts";
@@ -109,6 +110,10 @@ export class KazidomiAdapter implements SourceAdapter {
   constructor(deps: AdapterDeps) {
     this.deps = deps;
     this.index = new KazidomiIndex(deps.cache.database);
+  }
+
+  ownsProduct(offer: Offer): boolean {
+    return ownBrand(offer, ["Kazidomi"]);
   }
 
   async search(query: SearchQuery): Promise<Offer[]> {

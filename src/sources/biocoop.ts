@@ -8,6 +8,7 @@ import {
   emptyLabel,
   finalizeLabel,
   type LabelResult,
+  ownBrand,
   type SearchQuery,
   type SourceAdapter,
 } from "./adapter.ts";
@@ -120,6 +121,10 @@ export class BiocoopAdapter implements SourceAdapter {
 
   constructor(deps: AdapterDeps) {
     this.deps = deps;
+  }
+
+  ownsProduct(offer: Offer): boolean {
+    return ownBrand(offer, ["Biocoop"]);
   }
 
   async search(query: SearchQuery): Promise<Offer[]> {

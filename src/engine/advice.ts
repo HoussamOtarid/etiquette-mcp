@@ -18,6 +18,10 @@ export function buildAdvice({ nutrients, missing, confidence }: AdviceInput): st
       : `${independentSources} independent sources have a label.`,
   );
 
+  const owner = confidence.flagDetails.find((d) => d.flag === "brand_owner_label")?.source;
+  if (owner)
+    parts.push(`The label comes from ${owner}, the brand's own shop: the reference for this product.`);
+
   const conflicts = CORE_NUTRIENTS.filter((k) => nutrients[k]?.agreement === "conflict");
   if (conflicts.length > 0) {
     parts.push(

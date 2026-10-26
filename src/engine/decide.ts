@@ -65,10 +65,13 @@ function confidenceOf(
   independent: number,
   assembledOk: boolean,
   onlyLabelPassed: boolean,
+  brandOwner: boolean,
 ): Confidence {
   const core = CORE_NUTRIENTS.map((k) => nutrients[k]);
   if (core.every((n) => !n || n.value === null) && independent === 0) return "none";
   if (core.some((n) => !n)) return independent === 0 ? "none" : "low";
+  // A consistent label from the brand's own shop is the reference, even when it is the only one.
+  if (brandOwner && assembledOk && core.every((n) => n && n.value !== null)) return "high";
   const coreSettled = core.every((n) => n && ["strong", "weak", "majority"].includes(n.agreement));
   if (independent >= 2 && coreSettled && assembledOk) return "high";
   if (independent === 1) return onlyLabelPassed && assembledOk ? "medium" : "low";
@@ -96,6 +99,7 @@ export function decideLabel({ labels, productName, tierOf }: DecideInput): Decid
         source: l.source,
         value: l.values[key] as number,
         weight: l.weight,
+        owner: l.brandOwner,
         independenceKey: l.independenceKey,
       }));
     if (votes.length === 0) {
@@ -128,6 +132,8 @@ export function decideLabel({ labels, productName, tierOf }: DecideInput): Decid
   const assembledOk = assembledCheck.status !== "fail";
   if (!assembledOk) flags.add("assembled_label_inconsistent");
 
+  const owners = aligned.filter((l) => l.brandOwner);
+  if (owners.length > 0) flags.add("brand_owner_label");
   const independentSources = new Set(aligned.map((l) => l.independenceKey)).size;
   if (independentSources === 1) flags.add("single_source");
   for (const l of aligned) for (const f of l.flags) flags.add(f);
@@ -137,6 +143,7 @@ export function decideLabel({ labels, productName, tierOf }: DecideInput): Decid
   const insufficient = aligned.filter((l) => l.selfCheck.status === "insufficient").map((l) => l.source);
 
   const flagDetails = aligned.flatMap((l) => flagDetailsOf(l));
+  for (const l of owners) flagDetails.push({ flag: "brand_owner_label", source: l.source });
   if (flags.has("copied_label_collapsed")) {
     for (const l of aligned) {
       const copies = aligned
@@ -150,7 +157,13 @@ export function decideLabel({ labels, productName, tierOf }: DecideInput): Decid
         });
     }
   }
-  const overall = confidenceOf(nutrients, independentSources, assembledOk, failed.length === 0);
+  const overall = confidenceOf(
+    nutrients,
+    independentSources,
+    assembledOk,
+    failed.length === 0,
+    owners.length > 0,
+  );
   const confidence: DecidedLabel["confidence"] = {
     overall,
     sourcesWithLabel: aligned.length,

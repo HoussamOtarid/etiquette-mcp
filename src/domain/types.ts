@@ -60,6 +60,8 @@ export interface SourceLabel {
   dataOrigin?: "producer" | "crowd" | "store";
   /** The label itself says it was copied from another source (e.g. "Source : Open Food Facts"). */
   copiedFrom?: SourceId;
+  /** The shop listing the product makes or brands it (store brand): its label is the reference for that product. */
+  fromBrandOwner?: boolean;
   /** The source stores unknown values as 0 (Kazidomi); zeros must not be trusted blindly. */
   zeroMeansUnknown?: boolean;
   parseStatus: ParseStatus;

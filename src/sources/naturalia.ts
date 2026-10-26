@@ -7,6 +7,7 @@ import {
   emptyLabel,
   finalizeLabel,
   type LabelResult,
+  ownBrand,
   type SearchQuery,
   type SourceAdapter,
 } from "./adapter.ts";
@@ -99,6 +100,10 @@ export class NaturaliaAdapter implements SourceAdapter {
 
   constructor(deps: AdapterDeps) {
     this.deps = deps;
+  }
+
+  ownsProduct(offer: Offer): boolean {
+    return ownBrand(offer, ["Naturalia"]);
   }
 
   async search(query: SearchQuery): Promise<Offer[]> {
