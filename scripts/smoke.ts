@@ -21,6 +21,7 @@ const DEFAULT_CASES = [
   "5411788041157", // oat drink
   "3760324840986", // shop own-brand oat drink
   "3596710463411", // supermarket own brand (Chronodrive)
+  "3270160596973", // Picard
   "muesli sportif supernature",
 ];
 

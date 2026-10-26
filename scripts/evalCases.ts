@@ -74,6 +74,19 @@ export const CASES: EvalCase[] = [
     "French name field is English",
   ),
   label("leffe-ruby-00", "leffe ruby 0.0", { name: "ruby 0", brand: "leffe" }, "numbers carry no weight"),
+  // Picard (its own label is the reference)
+  label("picard-ean-lasagne", "3270160101351", { ean: "3270160101351" }),
+  label("picard-ean-riz", "3270160596973", { ean: "3270160596973" }),
+  label("picard-ean-sauce-tomate", "3270160401017", { ean: "3270160401017" }),
+  label(
+    "picard-lasagne-carciofi",
+    "lasagne ai carciofi picard",
+    { ean: "3270160101351" },
+    "a discontinued product keeps the exact name in Open Food Facts",
+  ),
+  label("picard-pizza-4-saisons", "pizza 4 saisons bio picard", { ean: "3270160717668" }),
+  label("picard-chicken-rolls", "2 chicken rolls picard", { ean: "3270160892440" }),
+  label("picard-riz-espagnole", "riz cuisiné à l'espagnole picard", { ean: "3270160596973" }),
   // generic foods (Ciqual)
   generic("generic-banane", "banane", "banane crue"),
   generic("generic-banana-en", "banana", "banane crue"),
